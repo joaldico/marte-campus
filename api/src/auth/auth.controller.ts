@@ -9,8 +9,17 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
+import {
+  ApiBody,
+  ApiCookieAuth,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+  ApiUnauthorizedResponse,
+} from '@nestjs/swagger';
 import { Request, Response } from 'express';
 import { AuthService, AuthedUser, PublicUser } from './auth.service';
+import { LoginDto, LogoutResponseDto, PublicUserDto } from './auth.dto';
 import { CurrentUser } from './current-user.decorator';
 import { SessionAuthGuard } from './session.guard';
 import {
@@ -19,19 +28,25 @@ import {
   sessionCookieOptions,
 } from './session-cookie';
 
+@ApiTags('auth')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
   @Get('users')
+  @ApiOperation({ summary: 'List demo users' })
+  @ApiOkResponse({ type: PublicUserDto, isArray: true })
   listUsers(): Promise<PublicUser[]> {
     return this.auth.listUsers();
   }
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Create session cookie' })
+  @ApiBody({ type: LoginDto })
+  @ApiOkResponse({ type: PublicUserDto })
   async login(
-    @Body() body: { userId?: string },
+    @Body() body: LoginDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<PublicUser> {
@@ -42,6 +57,10 @@ export class AuthController {
 
   @Get('me')
   @UseGuards(SessionAuthGuard)
+  @ApiCookieAuth(SESSION_COOKIE)
+  @ApiOperation({ summary: 'Current session user' })
+  @ApiOkResponse({ type: PublicUserDto })
+  @ApiUnauthorizedResponse()
   me(@CurrentUser() user: AuthedUser): PublicUser {
     return { id: user.id, name: user.name, role: user.role };
   }
@@ -49,6 +68,10 @@ export class AuthController {
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   @UseGuards(SessionAuthGuard)
+  @ApiCookieAuth(SESSION_COOKIE)
+  @ApiOperation({ summary: 'Clear session cookie' })
+  @ApiOkResponse({ type: LogoutResponseDto })
+  @ApiUnauthorizedResponse()
   async logout(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
