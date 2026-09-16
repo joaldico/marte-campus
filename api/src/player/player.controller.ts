@@ -26,14 +26,15 @@ export class PlayerController {
   @ApiCookieAuth(SESSION_COOKIE)
   @ApiOperation({
     summary:
-      'Player payload for a published-course chapter: url, merged ranges, cursor, siblings',
+      'Player payload for a last-published chapter: url, merged ranges, cursor, siblings (published, or retired if enrolled)',
   })
   @ApiParam({ name: 'chapterId', example: 'paisajes-i-ch-1' })
   @ApiOkResponse({ type: PlayerChapterDto })
   @ApiUnauthorizedResponse()
   @ApiForbiddenResponse({ description: 'NOT_ENROLLED' })
   @ApiNotFoundResponse({
-    description: 'Unknown or not published (COURSE_NOT_FOUND)',
+    description:
+      'Unknown, unpublished, or retired without enrollment (COURSE_NOT_FOUND)',
   })
   getChapter(
     @Param('chapterId') chapterId: string,

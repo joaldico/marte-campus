@@ -35,6 +35,7 @@ function expectedMergedRanges(userId: string, videoId: string) {
 
 function seedPrisma(
   cursors: { userId: string; videoId: string; positionSeconds: number }[] = [],
+  options: { retirePaisajesI?: boolean } = {},
 ) {
   const sessions = new Map<string, { userId: string; expiresAt: Date }>();
   const users = SEED_USERS.map((user) => ({ ...user }));
@@ -119,17 +120,19 @@ function seedPrisma(
               }
               return true;
             });
-            const publishedChapters =
-              course.status === 'published'
-                ? [...course.version.chapters]
-                    .sort((a, b) => a.position - b.position)
-                    .map((row) => ({
-                      ...row,
-                      video:
-                        VIDEO_DURATIONS.find((video) => video.id === row.videoId) ??
-                        null,
-                    }))
-                : [];
+            const retiredI =
+              options.retirePaisajesI === true && course.id === 'paisajes-i';
+            const keepPublishedSnapshot = course.status === 'published' || retiredI;
+            const publishedChapters = keepPublishedSnapshot
+              ? [...course.version.chapters]
+                  .sort((a, b) => a.position - b.position)
+                  .map((row) => ({
+                    ...row,
+                    video:
+                      VIDEO_DURATIONS.find((video) => video.id === row.videoId) ??
+                      null,
+                  }))
+              : [];
             return {
               id: chapter.id,
               title: chapter.title,
@@ -145,17 +148,17 @@ function seedPrisma(
                 course: {
                   id: course.id,
                   title: course.title,
-                  status: course.status,
-                  publishedVersionId:
-                    course.status === 'published' ? course.version.id : null,
+                  status: retiredI ? 'retired' : course.status,
+                  publishedVersionId: keepPublishedSnapshot
+                    ? course.version.id
+                    : null,
                   enrollments: courseEnrollments,
-                  publishedVersion:
-                    course.status === 'published'
-                      ? {
-                          id: course.version.id,
-                          chapters: publishedChapters,
-                        }
-                      : null,
+                  publishedVersion: keepPublishedSnapshot
+                    ? {
+                        id: course.version.id,
+                        chapters: publishedChapters,
+                      }
+                    : null,
                 },
               },
             };
@@ -228,12 +231,13 @@ describe('GET /player/chapters/:chapterId', () => {
 
   async function boot(
     cursors: { userId: string; videoId: string; positionSeconds: number }[] = [],
+    options: { retirePaisajesI?: boolean } = {},
   ) {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     })
       .overrideProvider(PrismaService)
-      .useValue(seedPrisma(cursors))
+      .useValue(seedPrisma(cursors, options))
       .compile();
 
     app = moduleFixture.createNestApplication();
@@ -368,5 +372,54 @@ describe('GET /player/chapters/:chapterId', () => {
 
     expect(response.status).toBe(200);
     expect(response.body.url).toBe(playa?.url);
+  });
+
+  it('Bruno GET /player/chapters/paisajes-i-ch-1 after retire is 200, not COURSE_NOT_FOUND', async () => {
+    process.env.VIDEO_PROXY = 'true';
+    await boot([], { retirePaisajesI: true });
+    const expectedRanges = expectedMergedRanges('bruno', 'playa');
+    const cookie = await loginAs('bruno');
+    const response = await request(app.getHttpServer())
+      .get('/player/chapters/paisajes-i-ch-1')
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(200);
+    expect(response.body.code).not.toBe('COURSE_NOT_FOUND');
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        id: 'paisajes-i-ch-1',
+        videoId: 'playa',
+        title: 'Playa',
+        position: 1,
+        url: '/videos/playa/stream',
+        cursor: 0,
+        siblings: { previousId: null, nextId: 'paisajes-i-ch-2' },
+      }),
+    );
+    expect(response.body.ranges).toEqual(expectedRanges);
+  });
+
+  it('Diego GET retired Paisajes I chapter is 404 COURSE_NOT_FOUND (not enrolled)', async () => {
+    process.env.VIDEO_PROXY = 'true';
+    await boot([], { retirePaisajesI: true });
+    const cookie = await loginAs('diego');
+    const response = await request(app.getHttpServer())
+      .get('/player/chapters/paisajes-i-ch-1')
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(404);
+    expect(response.body.code).toBe('COURSE_NOT_FOUND');
+  });
+
+  it('in_review Paisajes II chapter still 404 COURSE_NOT_FOUND after Paisajes I is retired', async () => {
+    process.env.VIDEO_PROXY = 'true';
+    await boot([], { retirePaisajesI: true });
+    const cookie = await loginAs('bruno');
+    const response = await request(app.getHttpServer())
+      .get('/player/chapters/paisajes-ii-ch-1')
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(404);
+    expect(response.body.code).toBe('COURSE_NOT_FOUND');
   });
 });

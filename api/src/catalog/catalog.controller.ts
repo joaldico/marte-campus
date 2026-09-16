@@ -52,14 +52,15 @@ export class CatalogController {
   @ApiCookieAuth(SESSION_COOKIE)
   @ApiOperation({
     summary:
-      'Published version chapters with per-chapter progress and watched ranges',
+      'Last published version chapters with per-chapter progress and watched ranges (published, or retired if enrolled)',
   })
   @ApiParam({ name: 'id', example: 'paisajes-i' })
   @ApiOkResponse({ type: CatalogCourseDetailDto })
   @ApiUnauthorizedResponse()
   @ApiForbiddenResponse({ description: 'NOT_ENROLLED' })
   @ApiNotFoundResponse({
-    description: 'Unknown or not published (COURSE_NOT_FOUND)',
+    description:
+      'Unknown, unpublished, or retired without enrollment (COURSE_NOT_FOUND)',
   })
   getById(@Param('id') id: string, @CurrentUser() user: AuthedUser) {
     return this.catalog.getPublishedById(user.id, id);

@@ -84,7 +84,7 @@ function expectedPublishedProgress(userId: string) {
   return courseProgress(chapters);
 }
 
-function seedPrisma() {
+function seedPrisma(options: { retirePaisajesI?: boolean } = {}) {
   const sessions = new Map<string, { userId: string; expiresAt: Date }>();
   const users = SEED_USERS.map((user) => ({ ...user }));
   const enrollments = SEED_ENROLLMENTS.map((row) => ({
@@ -104,15 +104,18 @@ function seedPrisma() {
   });
 
   const courses = [
-    ...SEED_COURSES.map((course) => ({
-      id: course.id,
-      title: course.title,
-      status: course.status,
-      publishedVersionId: course.status === 'published' ? course.version.id : null,
-      workingVersionId: course.version.id,
-      publishedVersion:
-        course.status === 'published' ? versionPayload(course) : null,
-    })),
+    ...SEED_COURSES.map((course) => {
+      const retiredI = options.retirePaisajesI === true && course.id === 'paisajes-i';
+      const keepPublishedSnapshot = course.status === 'published' || retiredI;
+      return {
+        id: course.id,
+        title: course.title,
+        status: retiredI ? 'retired' : course.status,
+        publishedVersionId: keepPublishedSnapshot ? course.version.id : null,
+        workingVersionId: course.version.id,
+        publishedVersion: keepPublishedSnapshot ? versionPayload(course) : null,
+      };
+    }),
     {
       id: 'paisajes-retired',
       title: 'Paisajes Retired',
@@ -589,5 +592,99 @@ describe('GET /catalog/courses/:id', () => {
       expect(chapter.chapterProgress.ratio).toBeCloseTo(expected[i].chapterProgress.ratio);
       expect(chapter.chapterProgress.completed).toBe(expected[i].chapterProgress.completed);
     }
+  });
+});
+
+describe('retired Paisajes I (spec 2.6 last published read)', () => {
+  let app: INestApplication;
+
+  beforeEach(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    })
+      .overrideProvider(PrismaService)
+      .useValue(seedPrisma({ retirePaisajesI: true }))
+      .compile();
+
+    app = moduleFixture.createNestApplication();
+    await app.init();
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  async function loginAs(userId: string): Promise<string> {
+    const login = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ userId });
+    expect(login.status).toBe(200);
+    return cookieHeader(login.headers['set-cookie']);
+  }
+
+  it('Diego enroll Paisajes I after Ana retires → 409 COURSE_RETIRED', async () => {
+    const cookie = await loginAs('diego');
+    const response = await request(app.getHttpServer())
+      .post('/catalog/courses/paisajes-i/enroll')
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe('COURSE_RETIRED');
+  });
+
+  it('omits Paisajes I from GET /catalog/courses after retire (published-only list)', async () => {
+    const cookie = await loginAs('bruno');
+    const response = await request(app.getHttpServer())
+      .get('/catalog/courses')
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(200);
+    const titles = response.body.map((row: { title: string }) => row.title);
+    expect(titles).not.toContain('Paisajes I');
+    expect(titles).not.toContain('Paisajes II');
+    expect(titles).not.toContain('Paisajes III');
+  });
+
+  it('Bruno GET /catalog/courses/paisajes-i after retire is 200 last published, not COURSE_NOT_FOUND', async () => {
+    const expected = expectedPublishedChapters('bruno');
+    const cookie = await loginAs('bruno');
+    const response = await request(app.getHttpServer())
+      .get('/catalog/courses/paisajes-i')
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(200);
+    expect(response.body.code).not.toBe('COURSE_NOT_FOUND');
+    expect(response.body.id).toBe('paisajes-i');
+    expect(response.body.title).toBe('Paisajes I');
+    expect(
+      response.body.chapters.map((chapter: { videoId: string }) => chapter.videoId),
+    ).toEqual(['playa', 'cascada', 'bosque']);
+    expect(response.body.chapters[0].id).toBe(expected[0].id);
+    expect(response.body.chapters[0].ranges).toEqual(expected[0].ranges);
+  });
+
+  it('Diego GET retired Paisajes I is 404 COURSE_NOT_FOUND (not enrolled)', async () => {
+    const cookie = await loginAs('diego');
+    const response = await request(app.getHttpServer())
+      .get('/catalog/courses/paisajes-i')
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(404);
+    expect(response.body.code).toBe('COURSE_NOT_FOUND');
+  });
+
+  it('draft and in_review still 404 COURSE_NOT_FOUND after another course is retired', async () => {
+    const cookie = await loginAs('bruno');
+    const inReview = await request(app.getHttpServer())
+      .get('/catalog/courses/paisajes-ii')
+      .set('Cookie', cookie);
+    const draft = await request(app.getHttpServer())
+      .get('/catalog/courses/paisajes-iii')
+      .set('Cookie', cookie);
+
+    expect(inReview.status).toBe(404);
+    expect(inReview.body.code).toBe('COURSE_NOT_FOUND');
+    expect(draft.status).toBe(404);
+    expect(draft.body.code).toBe('COURSE_NOT_FOUND');
   });
 });

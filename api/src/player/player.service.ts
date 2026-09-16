@@ -45,21 +45,25 @@ export class PlayerService {
 
     const course = chapter?.version.course;
     const publishedVersion = course?.publishedVersion;
+    const enrolled = (course?.enrollments.length ?? 0) > 0;
     const onPublishedVersion =
       !!chapter &&
       !!course &&
-      course.status === 'published' &&
       !!publishedVersion &&
       publishedVersion.chapters.some((row) => row.id === chapter.id);
+    const lastPublishedReadable =
+      onPublishedVersion &&
+      (course?.status === 'published' ||
+        (course?.status === 'retired' && enrolled));
 
-    if (!onPublishedVersion || !chapter || !course || !publishedVersion) {
+    if (!lastPublishedReadable || !chapter || !course || !publishedVersion) {
       throw new HttpException(
         { code: 'COURSE_NOT_FOUND', message: 'Unknown course' },
         HttpStatus.NOT_FOUND,
       );
     }
 
-    if (course.enrollments.length === 0) {
+    if (!enrolled) {
       throw new HttpException(
         { code: 'NOT_ENROLLED', message: 'Not enrolled in this course' },
         HttpStatus.FORBIDDEN,

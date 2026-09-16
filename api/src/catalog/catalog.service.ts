@@ -159,23 +159,28 @@ export class CatalogService {
       },
     });
 
-    if (!course || course.status !== 'published' || !course.publishedVersion) {
+    const publishedVersion = course?.publishedVersion;
+    const enrolled = (course?.enrollments.length ?? 0) > 0;
+    const lastPublishedReadable =
+      !!publishedVersion &&
+      (course.status === 'published' ||
+        (course.status === 'retired' && enrolled));
+
+    if (!course || !publishedVersion || !lastPublishedReadable) {
       throw new HttpException(
         { code: 'COURSE_NOT_FOUND', message: 'Unknown course' },
         HttpStatus.NOT_FOUND,
       );
     }
 
-    if (course.enrollments.length === 0) {
+    if (!enrolled) {
       throw new HttpException(
         { code: 'NOT_ENROLLED', message: 'Not enrolled in this course' },
         HttpStatus.FORBIDDEN,
       );
     }
 
-    const videoIds = course.publishedVersion.chapters.map(
-      (chapter) => chapter.videoId,
-    );
+    const videoIds = publishedVersion.chapters.map((chapter) => chapter.videoId);
     const events =
       videoIds.length === 0
         ? []
@@ -190,7 +195,7 @@ export class CatalogService {
     return {
       id: course.id,
       title: course.title,
-      chapters: course.publishedVersion.chapters.map((chapter) => {
+      chapters: publishedVersion.chapters.map((chapter) => {
         const watched = this.watchedFromEvents(events, chapter);
         return {
           id: chapter.id,
