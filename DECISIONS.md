@@ -47,7 +47,30 @@ Final hosts after redirect (HEAD / GET; archive.org may pick a different `dn*` n
 | auroras | `dn800303.us.archive.org` / `dn711005.ca.archive.org` |
 | largo | `dn800300.us.archive.org` |
 
-Durations (ffprobe / seed constants) are **not** decided here — T-1.6.
+Durations are recorded in **Video durations (T-1.6)** below.
+
+---
+
+## Video durations (T-1.6)
+
+**Verdict:** six `durationSeconds` committed in `api/prisma/seed.ts` as `VIDEO_DURATIONS`. Full Prisma inserts wait for T-3.2. Evaluator `docker compose up` must not re-probe archive.org for the 90 % rule.
+
+**When:** 2026-09-16  
+**ffprobe:** not installed on the probe host.  
+**Method:** ISO BMFF `mvhd` from `GET Range: bytes=0-262143` (`api/scripts/probe-video-durations.ts`, `npm run probe:durations` from `api/`). All six files have `moov`/`mvhd` in the first 256 KiB (`timescale=1000`).  
+**Integer rule:** `durationSeconds = Math.round(mvhd.duration / mvhd.timescale)`.  
+**Fallback:** none — every spec 2.2.2 URL returned `mvhd`. No invented numbers.
+
+| id | durationSeconds | mvhd seconds | timescale | duration ticks | Content-Length |
+|---|---|---|---|---|---|
+| playa | 10 | 9.924 | 1000 | 9924 | 1030541 |
+| cascada | 11 | 10.978 | 1000 | 10978 | 719202 |
+| bosque | 20 | 20.098 | 1000 | 20098 | 1755549 |
+| atardecer | 27 | 26.744 | 1000 | 26744 | 2767465 |
+| auroras | 28 | 28.434 | 1000 | 28434 | 2505088 |
+| largo | 104 | 103.979 | 1000 | 103979 | 8333708 |
+
+Note: spec 2.2.4 Carla `bosque` 0–25 is longer than the measured 20.098 s file. Seed still stores the probed duration; clipping of events past EOF is a later domain/import concern.
 
 ---
 
