@@ -261,6 +261,20 @@ function seedPrisma() {
         return hydrateVersion(version, args.include);
       },
     ),
+    update: jest.fn(
+      async (args: {
+        where: { id: string };
+        data: Partial<VersionRow>;
+        include?: Record<string, unknown>;
+      }) => {
+        const version = versions.find((row) => row.id === args.where.id);
+        if (!version) {
+          return null;
+        }
+        Object.assign(version, args.data);
+        return hydrateVersion(version, args.include);
+      },
+    ),
   };
   prisma.chapter = {
     findMany: jest.fn(
@@ -678,6 +692,153 @@ describe('Admin courses HTTP (T-6.1 / CA-05)', () => {
     const response = await request(app.getHttpServer())
       .get('/admin/courses/does-not-exist')
       .set('Cookie', cookie);
+
+    expect(response.status).toBe(404);
+    expect(response.body.code).toBe('COURSE_NOT_FOUND');
+  });
+
+  it('returns 401 without a session cookie on POST transition', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/admin/courses/paisajes-iii/transition')
+      .send({ to: 'in_review' });
+    expect(response.status).toBe(401);
+  });
+
+  it('returns 403 FORBIDDEN when Bruno POSTs a course transition', async () => {
+    const cookie = await loginAs('bruno');
+    const response = await request(app.getHttpServer())
+      .post('/admin/courses/paisajes-iii/transition')
+      .set('Cookie', cookie)
+      .send({ to: 'in_review' });
+
+    expect(response.status).toBe(403);
+    expect(response.body.code).toBe('FORBIDDEN');
+    expect(response.body.message).toBeTruthy();
+  });
+
+  it('CA-06: Paisajes III draft→published 409, in_review 200, then empty publish 409', async () => {
+    const cookie = await loginAs('ana');
+
+    const skipReview = await request(app.getHttpServer())
+      .post('/admin/courses/paisajes-iii/transition')
+      .set('Cookie', cookie)
+      .send({ to: 'published' });
+    expect(skipReview.status).toBe(409);
+    expect(skipReview.body.code).toBe('STATE_TRANSITION_FORBIDDEN');
+    expect(skipReview.body.message).toBeTruthy();
+
+    const toReview = await request(app.getHttpServer())
+      .post('/admin/courses/paisajes-iii/transition')
+      .set('Cookie', cookie)
+      .send({ to: 'in_review' });
+    expect(toReview.status).toBe(200);
+    expect(toReview.body.status).toBe('in_review');
+
+    const afterReview = await request(app.getHttpServer())
+      .get('/admin/courses/paisajes-iii')
+      .set('Cookie', cookie);
+    expect(afterReview.status).toBe(200);
+    expect(afterReview.body.status).toBe('in_review');
+    expect(afterReview.body.versions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: afterReview.body.workingVersionId,
+          revisionStatus: 'in_review',
+        }),
+      ]),
+    );
+
+    const emptyPublish = await request(app.getHttpServer())
+      .post('/admin/courses/paisajes-iii/transition')
+      .set('Cookie', cookie)
+      .send({ to: 'published' });
+    expect(emptyPublish.status).toBe(409);
+    expect(emptyPublish.body.code).toBe('COURSE_EMPTY');
+    expect(emptyPublish.body.message).toBeTruthy();
+    expect(emptyPublish.body.status).not.toBe('published');
+  });
+
+  it('CA-06: Paisajes I published→draft 409, retired 200 keeps version pointers', async () => {
+    const cookie = await loginAs('ana');
+
+    const before = await request(app.getHttpServer())
+      .get('/admin/courses/paisajes-i')
+      .set('Cookie', cookie);
+    expect(before.status).toBe(200);
+    expect(before.body.status).toBe('published');
+    const workingVersionId = before.body.workingVersionId as string;
+    const publishedVersionId = before.body.publishedVersionId as string;
+    expect(workingVersionId).toBeTruthy();
+    expect(publishedVersionId).toBe(workingVersionId);
+
+    const backToDraft = await request(app.getHttpServer())
+      .post('/admin/courses/paisajes-i/transition')
+      .set('Cookie', cookie)
+      .send({ to: 'draft' });
+    expect(backToDraft.status).toBe(409);
+    expect(backToDraft.body.code).toBe('STATE_TRANSITION_FORBIDDEN');
+    expect(backToDraft.body.message).toBeTruthy();
+
+    const retire = await request(app.getHttpServer())
+      .post('/admin/courses/paisajes-i/transition')
+      .set('Cookie', cookie)
+      .send({ to: 'retired' });
+    expect(retire.status).toBe(200);
+    expect(retire.body.status).toBe('retired');
+    expect(retire.body.workingVersionId).toBe(workingVersionId);
+    expect(retire.body.publishedVersionId).toBe(publishedVersionId);
+
+    const after = await request(app.getHttpServer())
+      .get('/admin/courses/paisajes-i')
+      .set('Cookie', cookie);
+    expect(after.status).toBe(200);
+    expect(after.body.status).toBe('retired');
+    expect(after.body.workingVersionId).toBe(workingVersionId);
+    expect(after.body.publishedVersionId).toBe(publishedVersionId);
+  });
+
+  it('publishes Paisajes II in_review with chapters onto the working version', async () => {
+    const cookie = await loginAs('ana');
+
+    const before = await request(app.getHttpServer())
+      .get('/admin/courses/paisajes-ii')
+      .set('Cookie', cookie);
+    expect(before.status).toBe(200);
+    expect(before.body.status).toBe('in_review');
+    expect(before.body.publishedVersionId).toBeNull();
+    expect(before.body.chapters.length).toBeGreaterThanOrEqual(1);
+
+    const published = await request(app.getHttpServer())
+      .post('/admin/courses/paisajes-ii/transition')
+      .set('Cookie', cookie)
+      .send({ to: 'published' });
+    expect(published.status).toBe(200);
+    expect(published.body.status).toBe('published');
+    expect(published.body.workingVersionId).toBe(before.body.workingVersionId);
+    expect(published.body.publishedVersionId).toBe(before.body.workingVersionId);
+
+    const after = await request(app.getHttpServer())
+      .get('/admin/courses/paisajes-ii')
+      .set('Cookie', cookie);
+    expect(after.status).toBe(200);
+    expect(after.body.status).toBe('published');
+    expect(after.body.publishedVersionId).toBe(after.body.workingVersionId);
+    expect(after.body.versions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: after.body.workingVersionId,
+          revisionStatus: 'published',
+        }),
+      ]),
+    );
+  });
+
+  it('returns 404 COURSE_NOT_FOUND when transitioning an unknown course', async () => {
+    const cookie = await loginAs('ana');
+    const response = await request(app.getHttpServer())
+      .post('/admin/courses/does-not-exist/transition')
+      .set('Cookie', cookie)
+      .send({ to: 'in_review' });
 
     expect(response.status).toBe(404);
     expect(response.body.code).toBe('COURSE_NOT_FOUND');

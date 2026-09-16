@@ -38,6 +38,7 @@ import {
   PatchAdminChapterDto,
   PatchAdminCourseDto,
   ReorderAdminChaptersDto,
+  TransitionAdminCourseDto,
 } from './admin.dto';
 import { AdminService } from './admin.service';
 
@@ -87,6 +88,26 @@ export class AdminController {
   @ApiNotFoundResponse({ description: 'COURSE_NOT_FOUND' })
   patch(@Param('id') id: string, @Body() body: PatchAdminCourseDto) {
     return this.admin.patchCourse(id, body.title);
+  }
+
+  @Post('courses/:id/transition')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Set course.status along spec 2.6 edges; illegal pairs and empty publish are 409',
+  })
+  @ApiParam({ name: 'id', example: 'paisajes-iii' })
+  @ApiBody({ type: TransitionAdminCourseDto })
+  @ApiOkResponse({ type: AdminCourseDto })
+  @ApiNotFoundResponse({ description: 'COURSE_NOT_FOUND' })
+  @ApiConflictResponse({
+    description: 'STATE_TRANSITION_FORBIDDEN or COURSE_EMPTY',
+  })
+  transition(
+    @Param('id') id: string,
+    @Body() body: TransitionAdminCourseDto,
+  ) {
+    return this.admin.transitionCourse(id, body.to);
   }
 
   @Post('courses/:id/chapters')

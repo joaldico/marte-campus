@@ -41,6 +41,11 @@ export class ReorderAdminChaptersDto {
   chapterIds!: string[];
 }
 
+export class TransitionAdminCourseDto {
+  @ApiProperty({ enum: CourseStatus, example: CourseStatus.in_review })
+  to!: CourseStatus;
+}
+
 export class AdminCourseListItemDto {
   @ApiProperty({ example: 'paisajes-i' })
   id!: string;

@@ -1,5 +1,12 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { CourseStatus as PrismaCourseStatus } from '@prisma/client';
 import { randomUUID } from 'crypto';
+import {
+  assertCanTransition,
+  StateMachineError,
+  type CourseStatus,
+  type StateMachineErrorCode,
+} from '../domain/state-machine';
 import { PrismaService } from '../prisma/prisma.service';
 
 type CourseRow = {
@@ -101,6 +108,59 @@ export class AdminService {
     return this.prisma.course.update({
       where: { id: courseId },
       data: { title },
+    });
+  }
+
+  async transitionCourse(courseId: string, to: PrismaCourseStatus) {
+    const course = await this.requireCourse(courseId);
+    const workingChapters = course.workingVersionId
+      ? await this.prisma.chapter.findMany({
+          where: { versionId: course.workingVersionId },
+        })
+      : [];
+
+    try {
+      assertCanTransition(
+        course.status as CourseStatus,
+        to as CourseStatus,
+        workingChapters.length,
+      );
+    } catch (err) {
+      if (err instanceof StateMachineError) {
+        throw new HttpException(
+          { code: err.code, message: stateMachineMessage(err.code) },
+          HttpStatus.CONFLICT,
+        );
+      }
+      throw err;
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      if (to === 'in_review' || to === 'published') {
+        if (!course.workingVersionId) {
+          throw new HttpException(
+            { code: 'COURSE_NOT_FOUND', message: 'Unknown course' },
+            HttpStatus.NOT_FOUND,
+          );
+        }
+        await tx.courseVersion.update({
+          where: { id: course.workingVersionId },
+          data: { revisionStatus: to },
+        });
+      }
+
+      const data: {
+        status: PrismaCourseStatus;
+        publishedVersionId?: string | null;
+      } = { status: to };
+      if (to === 'published') {
+        data.publishedVersionId = course.workingVersionId;
+      }
+
+      return tx.course.update({
+        where: { id: courseId },
+        data,
+      });
     });
   }
 
@@ -320,6 +380,13 @@ export class AdminService {
       position: chapter.position,
     };
   }
+}
+
+function stateMachineMessage(code: StateMachineErrorCode): string {
+  if (code === 'COURSE_EMPTY') {
+    return 'Working version has no chapters';
+  }
+  return 'Illegal course status transition';
 }
 
 function slugFromUrl(url: string): string {
