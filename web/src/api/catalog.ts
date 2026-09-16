@@ -16,7 +16,13 @@ export type CatalogCourse = {
 export type CatalogChapter = {
   id: string
   title: string
+  videoId: string
+  position: number
+  ranges: { from: number; to: number }[]
   chapterProgress: {
+    uniqueSeconds: number
+    durationSeconds: number
+    ratio: number
     completed: boolean
   }
 }

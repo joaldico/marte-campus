@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { NAlert, NList, NListItem, NSpin, NText } from 'naive-ui'
+import { NAlert, NButton, NCard, NSpin, NText } from 'naive-ui'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import {
   flushPlaybackEventKeepalive,
   postPlaybackEvent,
@@ -13,10 +13,12 @@ import {
   type PlayerRange,
 } from '../api/player'
 import { ApiError } from '../api/client'
+import WatchedBar from '../components/WatchedBar.vue'
 
 const HEARTBEAT_MS = 5000
 
 const route = useRoute()
+const router = useRouter()
 const chapterId = computed(() => String(route.params.chapterId ?? ''))
 const chapter = ref<PlayerChapter | null>(null)
 const ranges = ref<PlayerRange[]>([])
@@ -289,19 +291,6 @@ function onLoadedMetadata(): void {
   applyResumeCursor()
 }
 
-function segmentStyle(range: PlayerRange): Record<string, string> {
-  const duration = videoDuration.value
-  if (!(duration > 0)) {
-    return { display: 'none' }
-  }
-  const left = (range.from / duration) * 100
-  const width = ((range.to - range.from) / duration) * 100
-  return {
-    left: `${left}%`,
-    width: `${width}%`,
-  }
-}
-
 function onPageHide(): void {
   flushKeepalive()
 }
@@ -393,10 +382,18 @@ watch(chapterId, () => {
 </script>
 
 <template>
-  <div class="player">
-    <router-link :to="{ name: 'catalog' }" class="back">
-      Volver al catálogo
-    </router-link>
+  <div class="page">
+    <n-button
+      v-if="chapter"
+      text
+      class="back"
+      @click="router.push({ name: 'course', params: { id: chapter.courseId } })"
+    >
+      ← {{ chapter.courseTitle }}
+    </n-button>
+    <n-button v-else text class="back" @click="router.push({ name: 'catalog' })">
+      ← Catálogo
+    </n-button>
 
     <n-alert
       v-if="error"
@@ -407,106 +404,124 @@ watch(chapterId, () => {
     />
 
     <n-spin :show="loading">
-      <template v-if="chapter">
-        <n-text tag="h1" class="title">{{ chapter.title }}</n-text>
-
-        <video
-          ref="videoEl"
-          class="video"
-          :src="videoSrc"
-          controls
-          @timeupdate="onTimeUpdate"
-          @play="onPlay"
-          @pause="onPause"
-          @ended="onEnded"
-          @seeking="onSeeking"
-          @seeked="onSeeked"
-          @loadedmetadata="onLoadedMetadata"
-        />
-
-        <div class="range-bar" aria-hidden="true">
-          <div
-            v-for="range in ranges"
-            :key="`${range.from}-${range.to}`"
-            class="range-bar__seg"
-            :style="segmentStyle(range)"
+      <div v-if="chapter" class="stage">
+        <n-card class="cinema" :bordered="false">
+          <n-text tag="h1" class="title">{{ chapter.title }}</n-text>
+          <video
+            ref="videoEl"
+            class="video"
+            :src="videoSrc"
+            controls
+            @timeupdate="onTimeUpdate"
+            @play="onPlay"
+            @pause="onPause"
+            @ended="onEnded"
+            @seeking="onSeeking"
+            @seeked="onSeeked"
+            @loadedmetadata="onLoadedMetadata"
           />
-        </div>
+          <WatchedBar :ranges="ranges" :duration="videoDuration" />
+          <n-text depth="3" class="hint">
+            La barra pinta tramos únicos. Seek adelante no cuenta. x2 no dilata
+            el intervalo.
+          </n-text>
+        </n-card>
 
-        <n-list class="siblings" bordered>
-          <n-list-item v-if="chapter.siblings.previousId">
-            <router-link
-              :to="{
-                name: 'player',
-                params: { chapterId: chapter.siblings.previousId },
-              }"
-            >
-              Capítulo anterior
-            </router-link>
-          </n-list-item>
-          <n-list-item>
-            <n-text>{{ chapter.title }}</n-text>
-          </n-list-item>
-          <n-list-item v-if="chapter.siblings.nextId">
-            <router-link
-              :to="{
-                name: 'player',
-                params: { chapterId: chapter.siblings.nextId },
-              }"
-            >
-              Capítulo siguiente
-            </router-link>
-          </n-list-item>
-        </n-list>
-      </template>
+        <n-card title="Capítulos del curso" class="playlist">
+          <button
+            v-for="item in chapter.playlist"
+            :key="item.id"
+            type="button"
+            class="track"
+            :class="{ current: item.id === chapter.id }"
+            @click="router.push({ name: 'player', params: { chapterId: item.id } })"
+          >
+            <span>{{ String(item.position).padStart(2, '0') }}</span>
+            <strong>{{ item.title }}</strong>
+          </button>
+        </n-card>
+      </div>
     </n-spin>
   </div>
 </template>
 
 <style scoped>
-.player {
-  max-width: 960px;
+.page {
+  width: min(1180px, 100%);
   margin: 0 auto;
 }
 
 .back {
-  display: inline-block;
   margin-bottom: 16px;
-  color: inherit;
-}
-
-.title {
-  display: block;
-  margin: 0 0 16px;
-  font-size: 1.5rem;
 }
 
 .alert {
   margin-bottom: 16px;
 }
 
+.stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 18px;
+  align-items: start;
+}
+
+.title {
+  display: block;
+  margin: 0 0 12px;
+  font-size: 1.45rem;
+  font-weight: 700;
+}
+
 .video {
   display: block;
   width: 100%;
+  border-radius: 12px;
   background: #000;
+  margin-bottom: 12px;
 }
 
-.range-bar {
-  position: relative;
-  height: 8px;
-  margin: 8px 0 24px;
-  overflow: hidden;
-  background: #e8e8e8;
+.hint {
+  display: block;
+  margin-top: 10px;
 }
 
-.range-bar__seg {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  background: #18a058;
+.playlist :deep(.n-card__content) {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
 }
 
-.siblings a {
+.track {
+  display: grid;
+  grid-template-columns: 32px 1fr;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: rgba(148, 163, 184, 0.08);
   color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.track span {
+  color: #22d3ee;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.track.current {
+  border-color: rgba(34, 211, 238, 0.45);
+  background: rgba(34, 211, 238, 0.12);
+}
+
+@media (max-width: 900px) {
+  .stage {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

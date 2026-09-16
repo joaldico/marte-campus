@@ -10,6 +10,12 @@ export type PlayerSiblings = {
   nextId: string | null
 }
 
+export type PlayerPlaylistItem = {
+  id: string
+  title: string
+  position: number
+}
+
 export type PlayerChapter = {
   id: string
   videoId: string
@@ -18,6 +24,9 @@ export type PlayerChapter = {
   url: string
   ranges: PlayerRange[]
   cursor: number
+  courseId: string
+  courseTitle: string
+  playlist: PlayerPlaylistItem[]
   siblings: PlayerSiblings
 }
 

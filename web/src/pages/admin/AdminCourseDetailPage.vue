@@ -2,6 +2,7 @@
 import {
   NAlert,
   NButton,
+  NCard,
   NInput,
   NPopconfirm,
   NSpace,
@@ -220,10 +221,10 @@ async function removeChapter(chapterId: string): Promise<void> {
 </script>
 
 <template>
-  <div class="admin-course">
-    <router-link :to="{ name: 'admin-courses' }" class="back">
-      Volver a cursos
-    </router-link>
+  <div class="page">
+    <n-button text class="back" @click="router.push({ name: 'admin-courses' })">
+      ← Cursos
+    </n-button>
 
     <n-alert
       v-if="error"
@@ -235,155 +236,168 @@ async function removeChapter(chapterId: string): Promise<void> {
 
     <n-spin :show="loading">
       <template v-if="course">
-        <div class="heading">
-          <n-text tag="h1" class="title">{{ course.title }}</n-text>
-          <n-tag size="small" :type="statusTagType(course.status)">
-            {{ statusLabel(course.status) }}
-          </n-tag>
-        </div>
-
-        <n-space class="actions">
-          <n-button
-            v-if="legalTarget"
-            type="primary"
-            :loading="busy"
-            :disabled="busy"
-            @click="changeStatus"
-          >
-            {{ transitionButtonLabel(legalTarget) }}
-          </n-button>
-          <n-button
-            v-if="hasOpenRevision && workingRevisionStatus === 'draft'"
-            :loading="busy"
-            :disabled="busy"
-            @click="submitRevision"
-          >
-            Enviar revisión
-          </n-button>
-          <n-button
-            v-if="hasOpenRevision && workingRevisionStatus === 'in_review'"
-            type="primary"
-            :loading="busy"
-            :disabled="busy"
-            @click="publishRevision"
-          >
-            Publicar revisión
-          </n-button>
-        </n-space>
-
-        <n-text v-if="hasOpenRevision" depth="2" class="revision-note">
-          La versión de trabajo es distinta de la publicada.
-        </n-text>
-
-        <form class="add" @submit.prevent="addChapter">
-          <n-input
-            v-model:value="newTitle"
-            placeholder="Título del capítulo"
-            :disabled="busy"
-          />
-          <n-input
-            v-model:value="newUrl"
-            placeholder="URL del vídeo"
-            :disabled="busy"
-          />
-          <n-button
-            type="primary"
-            attr-type="submit"
-            :loading="busy"
-            :disabled="busy || !newTitle.trim() || !newUrl.trim()"
-          >
-            Añadir capítulo
-          </n-button>
-        </form>
-
-        <VueDraggable
-          v-if="chapters.length"
-          v-model="chapters"
-          handle=".handle"
-          :animation="200"
-          :disabled="busy || editingId !== null"
-          :onUpdate="onReorder"
-        >
-          <div v-for="chapter in chapters" :key="chapter.id" class="chapter">
-            <button class="handle" type="button" aria-label="Reordenar" :disabled="busy">
-              ⋮⋮
-            </button>
-            <div v-if="editingId === chapter.id" class="chapter-edit">
-              <n-input v-model:value="editTitle" :disabled="busy" />
-              <n-input v-model:value="editUrl" :disabled="busy" />
-              <n-space>
-                <n-button
-                  size="small"
-                  type="primary"
-                  :disabled="busy || !editTitle.trim()"
-                  @click="saveEdit"
-                >
-                  Guardar
-                </n-button>
-                <n-button size="small" :disabled="busy" @click="cancelEdit">
-                  Cancelar
-                </n-button>
-              </n-space>
+        <n-card class="hero-card">
+          <div class="heading">
+            <div>
+              <n-text tag="h1" class="title">{{ course.title }}</n-text>
+              <n-text v-if="hasOpenRevision" depth="3">
+                Los alumnos siguen en la versión publicada hasta que envíes y
+                publiques la revisión.
+              </n-text>
             </div>
-            <div v-else class="chapter-body">
-              <div>
-                <n-text class="chapter-title">{{ chapter.title }}</n-text>
-                <n-text depth="3" class="chapter-url">{{ chapter.url }}</n-text>
-              </div>
-              <n-space>
-                <n-button size="small" :disabled="busy" @click="startEdit(chapter)">
-                  Editar
-                </n-button>
-                <n-popconfirm @positive-click="removeChapter(chapter.id)">
-                  <template #trigger>
-                    <n-button size="small" :disabled="busy">Eliminar</n-button>
-                  </template>
-                  ¿Eliminar este capítulo?
-                </n-popconfirm>
-              </n-space>
-            </div>
+            <n-tag :type="statusTagType(course.status)">
+              {{ statusLabel(course.status) }}
+            </n-tag>
           </div>
-        </VueDraggable>
-        <n-text v-else depth="3">Este curso no tiene capítulos.</n-text>
+          <n-space>
+            <n-button
+              v-if="legalTarget"
+              type="primary"
+              :loading="busy"
+              :disabled="busy"
+              @click="changeStatus"
+            >
+              {{ transitionButtonLabel(legalTarget) }}
+            </n-button>
+            <n-button
+              v-if="hasOpenRevision && workingRevisionStatus === 'draft'"
+              :loading="busy"
+              :disabled="busy"
+              @click="submitRevision"
+            >
+              Enviar revisión
+            </n-button>
+            <n-button
+              v-if="hasOpenRevision && workingRevisionStatus === 'in_review'"
+              type="primary"
+              :loading="busy"
+              :disabled="busy"
+              @click="publishRevision"
+            >
+              Publicar revisión
+            </n-button>
+          </n-space>
+        </n-card>
+
+        <n-card title="Añadir capítulo" class="block">
+          <form class="add" @submit.prevent="addChapter">
+            <n-input
+              v-model:value="newTitle"
+              placeholder="Título"
+              :disabled="busy"
+            />
+            <n-input
+              v-model:value="newUrl"
+              placeholder="URL de archive.org"
+              :disabled="busy"
+            />
+            <n-button
+              type="primary"
+              attr-type="submit"
+              :loading="busy"
+              :disabled="busy || !newTitle.trim() || !newUrl.trim()"
+            >
+              Añadir
+            </n-button>
+          </form>
+        </n-card>
+
+        <n-card title="Capítulos · arrastra para reordenar" class="block">
+          <VueDraggable
+            v-if="chapters.length"
+            v-model="chapters"
+            handle=".handle"
+            :animation="200"
+            :disabled="busy || editingId !== null"
+            :onUpdate="onReorder"
+          >
+            <div v-for="chapter in chapters" :key="chapter.id" class="chapter">
+              <button
+                class="handle"
+                type="button"
+                aria-label="Reordenar"
+                :disabled="busy"
+              >
+                ⋮⋮
+              </button>
+              <div v-if="editingId === chapter.id" class="chapter-edit">
+                <n-input v-model:value="editTitle" :disabled="busy" />
+                <n-input v-model:value="editUrl" :disabled="busy" />
+                <n-space>
+                  <n-button
+                    size="small"
+                    type="primary"
+                    :disabled="busy || !editTitle.trim()"
+                    @click="saveEdit"
+                  >
+                    Guardar
+                  </n-button>
+                  <n-button size="small" :disabled="busy" @click="cancelEdit">
+                    Cancelar
+                  </n-button>
+                </n-space>
+              </div>
+              <div v-else class="chapter-body">
+                <div>
+                  <n-text class="chapter-title">{{ chapter.title }}</n-text>
+                  <n-text depth="3" class="chapter-url">{{ chapter.url }}</n-text>
+                </div>
+                <n-space>
+                  <n-button
+                    size="small"
+                    :disabled="busy"
+                    @click="startEdit(chapter)"
+                  >
+                    Editar
+                  </n-button>
+                  <n-popconfirm @positive-click="removeChapter(chapter.id)">
+                    <template #trigger>
+                      <n-button size="small" :disabled="busy">Eliminar</n-button>
+                    </template>
+                    ¿Eliminar este capítulo?
+                  </n-popconfirm>
+                </n-space>
+              </div>
+            </div>
+          </VueDraggable>
+          <n-text v-else depth="3">Este curso no tiene capítulos.</n-text>
+        </n-card>
       </template>
     </n-spin>
   </div>
 </template>
 
 <style scoped>
-.admin-course {
-  max-width: 960px;
+.page {
+  width: min(920px, 100%);
   margin: 0 auto;
 }
 
 .back {
-  display: inline-block;
   margin-bottom: 16px;
-  color: inherit;
 }
 
 .title {
-  margin: 0;
-  font-size: 1.5rem;
+  display: block;
+  margin: 0 0 6px;
+  font-size: 1.8rem;
+  font-weight: 700;
 }
 
 .alert {
   margin-bottom: 16px;
 }
 
+.hero-card,
+.block {
+  margin-bottom: 16px;
+}
+
 .heading {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.actions {
-  margin-bottom: 16px;
-}
-
-.revision-note {
-  display: block;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
   margin-bottom: 16px;
 }
 
@@ -391,7 +405,6 @@ async function removeChapter(chapterId: string): Promise<void> {
   display: grid;
   grid-template-columns: 1fr 2fr auto;
   gap: 12px;
-  margin-bottom: 16px;
 }
 
 .chapter {
@@ -399,7 +412,7 @@ async function removeChapter(chapterId: string): Promise<void> {
   gap: 12px;
   align-items: flex-start;
   padding: 12px 0;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
 }
 
 .handle {
@@ -407,9 +420,10 @@ async function removeChapter(chapterId: string): Promise<void> {
   margin-top: 4px;
   padding: 4px 8px;
   border: 0;
-  background: transparent;
+  border-radius: 8px;
+  background: rgba(34, 211, 238, 0.1);
   cursor: grab;
-  color: inherit;
+  color: #67e8f9;
 }
 
 .handle:disabled {

@@ -1,4 +1,4 @@
-import { fetchMe, login, type PublicUser } from '../api/auth'
+import { fetchMe, login, logout, type PublicUser } from '../api/auth'
 
 export async function ensureSession(): Promise<PublicUser | null> {
   try {
@@ -15,4 +15,12 @@ export async function loginAs(userId: string): Promise<PublicUser> {
     throw new Error('La sesión no quedó establecida.')
   }
   return user
+}
+
+export async function logoutSession(): Promise<void> {
+  try {
+    await logout()
+  } catch {
+    /* already signed out */
+  }
 }

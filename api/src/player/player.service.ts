@@ -3,6 +3,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { merge, type Interval } from '../domain/progress';
 import { playerVideoUrl } from '../videos/video-proxy';
 
+export type PlayerPlaylistItem = {
+  id: string;
+  title: string;
+  position: number;
+};
+
 export type PlayerChapterView = {
   id: string;
   videoId: string;
@@ -11,6 +17,9 @@ export type PlayerChapterView = {
   url: string;
   ranges: Interval[];
   cursor: number;
+  courseId: string;
+  courseTitle: string;
+  playlist: PlayerPlaylistItem[];
   siblings: { previousId: string | null; nextId: string | null };
 };
 
@@ -98,6 +107,13 @@ export class PlayerService {
       url: playerVideoUrl(chapter.videoId, chapter.video.url),
       ranges,
       cursor: cursorRow?.positionSeconds ?? 0,
+      courseId: course.id,
+      courseTitle: course.title,
+      playlist: ordered.map((row) => ({
+        id: row.id,
+        title: row.title,
+        position: row.position,
+      })),
       siblings: {
         previousId: index > 0 ? ordered[index - 1].id : null,
         nextId:

@@ -2,18 +2,17 @@
 import {
   NAlert,
   NButton,
+  NCard,
+  NDataTable,
+  NForm,
+  NFormItem,
   NInput,
+  NModal,
   NSpin,
-  NTable,
   NTag,
-  NTbody,
-  NTd,
   NText,
-  NTh,
-  NThead,
-  NTr,
 } from 'naive-ui'
-import { onMounted, ref } from 'vue'
+import { h, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   createAdminCourse,
@@ -26,8 +25,33 @@ const router = useRouter()
 const courses = ref<AdminCourseListItem[]>([])
 const loading = ref(true)
 const creating = ref(false)
+const showCreate = ref(false)
 const error = ref<string | null>(null)
 const newTitle = ref('Paisajes IV')
+
+const columns = [
+  {
+    title: 'Curso',
+    key: 'title',
+  },
+  {
+    title: 'Estado',
+    key: 'status',
+    width: 160,
+    render(row: AdminCourseListItem) {
+      return h(
+        NTag,
+        { size: 'small', type: statusTagType(row.status) },
+        { default: () => statusLabel(row.status) },
+      )
+    },
+  },
+  {
+    title: 'Capítulos',
+    key: 'chapterCount',
+    width: 120,
+  },
+]
 
 async function loadCourses(): Promise<void> {
   loading.value = true
@@ -58,6 +82,7 @@ async function createCourse(): Promise<void> {
   error.value = null
   try {
     const created = await createAdminCourse(title)
+    showCreate.value = false
     await router.push({ name: 'admin-course', params: { id: created.id } })
   } catch {
     error.value = 'No se pudo crear el curso.'
@@ -68,8 +93,16 @@ async function createCourse(): Promise<void> {
 </script>
 
 <template>
-  <div class="admin-courses">
-    <n-text tag="h1" class="title">Cursos</n-text>
+  <div class="page">
+    <div class="hero">
+      <div>
+        <n-text tag="h1" class="title">Cursos</n-text>
+        <n-text class="lead">
+          Estados solo hacia adelante. Un curso vacío no se publica.
+        </n-text>
+      </div>
+      <n-button type="primary" @click="showCreate = true">Nuevo curso</n-button>
+    </div>
 
     <n-alert
       v-if="error"
@@ -79,78 +112,76 @@ async function createCourse(): Promise<void> {
       :bordered="false"
     />
 
-    <form class="create" @submit.prevent="createCourse">
-      <n-input
-        v-model:value="newTitle"
-        placeholder="Paisajes IV"
-        :disabled="creating"
-      />
-      <n-button
-        type="primary"
-        attr-type="submit"
-        :loading="creating"
-        :disabled="!newTitle.trim()"
-      >
-        Crear curso
-      </n-button>
-    </form>
+    <n-card>
+      <n-spin :show="loading">
+        <n-data-table
+          :columns="columns"
+          :data="courses"
+          :bordered="false"
+          :row-props="
+            (row: AdminCourseListItem) => ({
+              style: 'cursor: pointer',
+              onClick: () => openCourse(row),
+            })
+          "
+        />
+      </n-spin>
+    </n-card>
 
-    <n-spin :show="loading">
-      <n-table v-if="courses.length" :single-line="false">
-        <n-thead>
-          <n-tr>
-            <n-th>Título</n-th>
-            <n-th>Estado</n-th>
-            <n-th>Capítulos</n-th>
-          </n-tr>
-        </n-thead>
-        <n-tbody>
-          <n-tr
-            v-for="course in courses"
-            :key="course.id"
-            class="row"
-            @click="openCourse(course)"
-          >
-            <n-td>{{ course.title }}</n-td>
-            <n-td>
-              <n-tag size="small" :type="statusTagType(course.status)">
-                {{ statusLabel(course.status) }}
-              </n-tag>
-            </n-td>
-            <n-td>{{ course.chapterCount }}</n-td>
-          </n-tr>
-        </n-tbody>
-      </n-table>
-      <n-text v-else-if="!loading && !error" depth="3">
-        No hay cursos.
-      </n-text>
-    </n-spin>
+    <n-modal
+      v-model:show="showCreate"
+      preset="card"
+      title="Crear curso"
+      style="width: 420px"
+    >
+      <n-form @submit.prevent="createCourse">
+        <n-form-item label="Título">
+          <n-input
+            v-model:value="newTitle"
+            placeholder="Paisajes IV"
+            :disabled="creating"
+          />
+        </n-form-item>
+        <n-button
+          type="primary"
+          attr-type="submit"
+          block
+          :loading="creating"
+          :disabled="!newTitle.trim()"
+        >
+          Crear
+        </n-button>
+      </n-form>
+    </n-modal>
   </div>
 </template>
 
 <style scoped>
-.admin-courses {
-  max-width: 960px;
+.page {
+  width: min(1040px, 100%);
   margin: 0 auto;
+}
+
+.hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-end;
+  margin-bottom: 20px;
 }
 
 .title {
   display: block;
-  margin: 0 0 24px;
-  font-size: 1.5rem;
+  margin: 0 0 6px;
+  font-size: 2rem;
+  font-weight: 700;
+}
+
+.lead {
+  color: rgba(148, 163, 184, 0.95);
 }
 
 .alert {
   margin-bottom: 16px;
-}
-
-.create {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.row {
-  cursor: pointer;
 }
 </style>

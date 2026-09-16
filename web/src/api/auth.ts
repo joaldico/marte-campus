@@ -29,3 +29,7 @@ export async function fetchMe(): Promise<PublicUser | null> {
   }
   return (await res.json()) as PublicUser
 }
+
+export function logout(): Promise<{ ok: true }> {
+  return apiJson<{ ok: true }>('/api/auth/logout', { method: 'POST' })
+}
