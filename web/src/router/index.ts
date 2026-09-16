@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { ensureSession } from '../auth/session'
 import CatalogPage from '../pages/CatalogPage.vue'
+import CoursePage from '../pages/CoursePage.vue'
 import LoginPage from '../pages/LoginPage.vue'
 
 const router = createRouter({
@@ -15,6 +16,12 @@ const router = createRouter({
       path: '/catalogo',
       name: 'catalog',
       component: CatalogPage,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/catalogo/:id',
+      name: 'course',
+      component: CoursePage,
       meta: { requiresAuth: true },
     },
   ],
