@@ -1,8 +1,8 @@
 # 1. Intención del Producto (Intent) — Campus Marte (prueba Beonit)
 
 > **Fase SDD:** `1/4 — Intent`
-> **Estado:** `🟡 En revisión — pendiente de aprobación (v1.0.0)`
-> **Versión:** `1.0.0`
+> **Estado:** `🟢 Aprobado (2026-09-16)`
+> **Versión:** `1.1.0` — cierra Naive UI, repo `joaldico/marte-campus`, demo `beonittest.josuediazcontreras.com`
 > **Última actualización:** 2026-09-16
 > **Autor(es):** Josué Díaz Contreras
 > **Contexto:** Prueba técnica Full Stack (Vue 3 · NestJS · PostgreSQL · TypeScript) para Beonit. Entrega = repositorio GitHub que arranca con `docker compose up` en máquina limpia. Demo pública en subdominio propio para que el evaluador no dependa de clonar si no quiere.
@@ -90,14 +90,14 @@ Aplicación web desacoplada: SPA Vue 3 + API NestJS + PostgreSQL, todo TypeScrip
 ## 1.6. Restricciones Globales
 
 - **Stack impuesto por el enunciado:** Vue 3, NestJS, PostgreSQL, TypeScript. Librerías libres.
-- **UI:** librería de componentes Vue 3 (propuesta: Naive UI; ver enfoques). Logo: `josue-diaz-web/public/logo.png`.
+- **UI:** Naive UI + logo `josue-diaz-web/public/logo.png`.
 - **Login de prueba:** sin contraseña; lista de usuarios. Sesión emitida por el servidor (cookie httpOnly o token opaco). El id de usuario elegido **no** autoriza a calcular progreso en el cliente.
 - **Vídeos:** URLs de `archive.org` del PDF (las de los hipervínculos, no el texto recortado). El reproductor debe funcionar pese a CORS/Range; si archive.org bloquea, proxy de rangos en API documentado en DECISIONS.md.
 - **Idioma UI:** español (el enunciado y los evaluadores están en ES).
 - **CI/CD:** GitHub Actions en cuenta personal `joaldico`, mismo patrón que `josue-diaz-web`: runner `[self-hosted, Linux, X64]`, push a `ghcr.io`, `docker compose up -d` en la EC2.
 - **Producción:** reutilizar la EC2 y `proxy-reverse` (puertos libres tras 3000/3001/3002). Subdominio `beonittest.josuediazcontreras.com` + certbot Let's Encrypt. Postgres **solo en red Docker**, no publicado a internet.
 - **Calidad:** TDD en reglas de dominio (unión de intervalos, 90 %, máquina de estados, importación sucia). OpenAPI generado, no escrito a mano y olvidado.
-- **Entrega GitHub:** repo en `joaldico` (nombre propuesto: `marte-campus`). En raíz: `docker-compose.yml`, `README.md`, `DECISIONS.md`.
+- **Entrega GitHub:** repo privado `https://github.com/joaldico/marte-campus`. En raíz: `docker-compose.yml`, `README.md`, `DECISIONS.md`.
 - **Presupuesto / tiempo:** fast-track. Obligatorio pulido > bonus. Una decisión bien explicada pesa más que una feature extra.
 
 ---
@@ -166,6 +166,6 @@ Aplicación web desacoplada: SPA Vue 3 + API NestJS + PostgreSQL, todo TypeScrip
 - [x] Anti-objetivos: bonus fuera; no auth “de producción”; no progreso en Vue.
 - [x] Stakeholders del concurso (evaluador) y de la demo (subdominio) explícitos.
 - [x] Riesgo CORS/archive.org y seed sucio promovidos a requisitos, no a notas a pie.
-- [ ] **Aprobación de Josué de la v1.0.0** (UI concreta + transiciones de estado se cierran en `2_spec.md`).
+- [x] **Aprobación de Josué de la v1.1.0** (Naive UI, misma EC2, subdominio, repo `joaldico/marte-campus`).
 
-> **Siguiente fase (bloqueada hasta aprobación de enfoques UI + estados):** [`2_spec.md`](./2_spec.md) — contratos, Gherkin, seed sucio, máquina de estados cerrada, política de progreso al republicar.
+> **Siguiente fase:** [`2_spec.md`](./2_spec.md).

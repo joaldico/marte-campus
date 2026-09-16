@@ -24,5 +24,8 @@ Thumbs.db
 .vscode/
 *.swp
 
+# git worktrees
+.worktrees/
+
 # artifacts locales
 artifacts/tmp/
