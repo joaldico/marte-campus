@@ -22,6 +22,14 @@ export type PlaybackCursorView = {
   positionSeconds: number;
 };
 
+function finiteOrZero(value: number): number {
+  return Number.isFinite(value) ? value : 0;
+}
+
+function finiteDateOrNow(value: Date): Date {
+  return Number.isFinite(value.getTime()) ? value : new Date();
+}
+
 @Injectable()
 export class PlaybackService {
   constructor(private readonly prisma: PrismaService) {}
@@ -62,10 +70,10 @@ export class PlaybackService {
       data: {
         userId,
         videoId,
-        fromS: from,
-        toS: to,
-        rate,
-        at,
+        fromS: finiteOrZero(from),
+        toS: finiteOrZero(to),
+        rate: finiteOrZero(rate),
+        at: finiteDateOrNow(at),
         accepted,
         rejectReason,
       },

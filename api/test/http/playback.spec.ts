@@ -115,6 +115,16 @@ function seedPrisma(
             rejectReason: string | null;
           };
         }) => {
+          if (
+            !Number.isFinite(data.fromS) ||
+            !Number.isFinite(data.toS) ||
+            !Number.isFinite(data.rate)
+          ) {
+            throw new Error('Prisma Float cannot be NaN or Infinity');
+          }
+          if (!(data.at instanceof Date) || !Number.isFinite(data.at.getTime())) {
+            throw new Error('Prisma DateTime cannot be Invalid Date');
+          }
           const row = {
             id: `live-ev-${events.length + 1}`,
             ...data,
@@ -297,6 +307,78 @@ describe('POST /playback/events', () => {
           row.toS === 10,
       ),
     ).toBe(true);
+  });
+
+  it('missing from/to/rate persists negative_or_nan with finite placeholders, not 500', async () => {
+    const prisma = await boot();
+    const cookie = await loginAs('carla');
+    const response = await request(app.getHttpServer())
+      .post('/playback/events')
+      .set('Cookie', cookie)
+      .send({ videoId: 'playa', at: 'not-a-date' });
+
+    expect([200, 201]).toContain(response.status);
+    expect(response.body.accepted).toBe(false);
+    expect(response.body.rejectReason).toBe('negative_or_nan');
+
+    const stored = await prisma.playbackEvent.findMany({
+      where: { userId: 'carla', videoId: 'playa' },
+    });
+    const rejected = stored.filter(
+      (row) =>
+        row.accepted === false && row.rejectReason === 'negative_or_nan',
+    );
+    expect(rejected.length).toBeGreaterThan(0);
+    expect(Number.isFinite(rejected[0].fromS)).toBe(true);
+    expect(Number.isFinite(rejected[0].toS)).toBe(true);
+    expect(Number.isFinite(rejected[0].rate)).toBe(true);
+    expect(Number.isFinite(rejected[0].at.getTime())).toBe(true);
+  });
+
+  it('unparsable from/to/rate persist negative_or_nan, not 500', async () => {
+    const prisma = await boot();
+    const cookie = await loginAs('carla');
+    const response = await request(app.getHttpServer())
+      .post('/playback/events')
+      .set('Cookie', cookie)
+      .send({ videoId: 'playa', from: 'x', to: 'y', rate: 'z' });
+
+    expect([200, 201]).toContain(response.status);
+    expect(response.body.accepted).toBe(false);
+    expect(response.body.rejectReason).toBe('negative_or_nan');
+
+    const stored = await prisma.playbackEvent.findMany({
+      where: { userId: 'carla', videoId: 'playa' },
+    });
+    expect(
+      stored.some(
+        (row) =>
+          row.accepted === false &&
+          row.rejectReason === 'negative_or_nan' &&
+          Number.isFinite(row.fromS) &&
+          Number.isFinite(row.toS) &&
+          Number.isFinite(row.rate),
+      ),
+    ).toBe(true);
+  });
+
+  it('invalid at with a valid interval persists a finite Date, not 500', async () => {
+    const prisma = await boot();
+    const cookie = await loginAs('carla');
+    const response = await request(app.getHttpServer())
+      .post('/playback/events')
+      .set('Cookie', cookie)
+      .send({ videoId: 'playa', from: 10, to: 12, rate: 1, at: 'not-a-date' });
+
+    expect([200, 201]).toContain(response.status);
+    expect(response.body.accepted).toBe(true);
+
+    const stored = await prisma.playbackEvent.findMany({
+      where: { userId: 'carla', videoId: 'playa' },
+    });
+    const created = stored.find((row) => row.id.startsWith('live-ev-'));
+    expect(created).toBeDefined();
+    expect(Number.isFinite(created!.at.getTime())).toBe(true);
   });
 
   it('Diego can POST playa events without enrollment', async () => {
