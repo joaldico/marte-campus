@@ -52,9 +52,12 @@ const HTTP_METHODS = [
   'trace',
 ] as const;
 
+type SecurityRequirement = Record<string, unknown>;
+
 type OpenApiDoc = {
   openapi?: string;
   paths?: Record<string, Record<string, unknown>>;
+  security?: SecurityRequirement[];
   components?: {
     securitySchemes?: Record<
       string,
@@ -64,8 +67,15 @@ type OpenApiDoc = {
 };
 
 type OpenApiOperation = {
-  security?: Array<Record<string, unknown>>;
+  security?: SecurityRequirement[];
 };
+
+function effectiveSecurity(
+  op: OpenApiOperation | undefined,
+  doc: OpenApiDoc,
+): SecurityRequirement[] {
+  return op?.security ?? doc.security ?? [];
+}
 
 function listedOperations(paths: Record<string, Record<string, unknown>>): string[] {
   const out: string[] = [];
@@ -137,12 +147,15 @@ describe('Swagger /docs', () => {
     const doc = response.body as OpenApiDoc;
     const paths = doc.paths ?? {};
     const scheme = cookieSchemeName(doc);
+    expect(doc.security ?? []).toEqual([]);
 
     for (const listed of SPEC_28_OPERATIONS) {
       const op = operationAt(paths, listed);
-      const names = (op?.security ?? []).flatMap((entry) => Object.keys(entry));
+      const names = effectiveSecurity(op, doc).flatMap((entry) =>
+        Object.keys(entry),
+      );
       if (PUBLIC_OPERATIONS.has(listed)) {
-        expect(names).not.toContain(scheme);
+        expect(names).toEqual([]);
       } else {
         expect(names).toContain(scheme);
       }
