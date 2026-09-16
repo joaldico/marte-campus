@@ -25,7 +25,7 @@ describe('Swagger /docs', () => {
     await app.close();
   });
 
-  it('GET /docs-json returns 200 OpenAPI for health, auth, catalog list, enroll and course detail (no admin)', async () => {
+  it('GET /docs-json returns 200 OpenAPI for health, auth, catalog, player chapter and video stream (no admin)', async () => {
     const response = await request(app.getHttpServer()).get('/docs-json');
 
     expect(response.status).toBe(200);
@@ -43,6 +43,12 @@ describe('Swagger /docs', () => {
     expect(response.body.paths['/catalog/courses/{id}'].post).toBeUndefined();
     expect(response.body.paths['/catalog/courses/{id}/enroll']).toBeDefined();
     expect(response.body.paths['/catalog/courses/{id}/enroll'].post).toBeDefined();
+    expect(response.body.paths['/player/chapters/{chapterId}']).toBeDefined();
+    expect(response.body.paths['/player/chapters/{chapterId}'].get).toBeDefined();
+    expect(response.body.paths['/player/chapters/{chapterId}'].post).toBeUndefined();
+    expect(response.body.paths['/videos/{id}/stream']).toBeDefined();
+    expect(response.body.paths['/videos/{id}/stream'].get).toBeDefined();
+    expect(response.body.paths['/playback/events']).toBeUndefined();
     expect(response.body.paths['/admin/courses']).toBeUndefined();
   });
 
