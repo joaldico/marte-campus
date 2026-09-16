@@ -113,7 +113,7 @@ export class AdminController {
   @Post('courses/:id/chapters')
   @ApiOperation({
     summary:
-      'Append a chapter to the working version; reuse Video by url or create one',
+      'Append a chapter to the working version (clones published working first); reuse Video by url or create one',
   })
   @ApiParam({ name: 'id', example: 'paisajes-iii' })
   @ApiBody({ type: CreateAdminChapterDto })
@@ -129,7 +129,8 @@ export class AdminController {
 
   @Patch('courses/:id/chapters/order')
   @ApiOperation({
-    summary: 'Rewrite working-version chapter positions 1..n',
+    summary:
+      'Rewrite working-version chapter positions 1..n (clones published working first)',
   })
   @ApiParam({ name: 'id', example: 'paisajes-iii' })
   @ApiBody({ type: ReorderAdminChaptersDto })
@@ -145,7 +146,10 @@ export class AdminController {
   }
 
   @Patch('courses/:id/chapters/:cid')
-  @ApiOperation({ summary: 'Patch a working-version chapter title and optional url' })
+  @ApiOperation({
+    summary:
+      'Patch a working-version chapter title and optional url (clones published working first)',
+  })
   @ApiParam({ name: 'id', example: 'paisajes-iii' })
   @ApiParam({ name: 'cid', example: 'uuid-chapter' })
   @ApiBody({ type: PatchAdminChapterDto })
@@ -162,7 +166,9 @@ export class AdminController {
 
   @Delete('courses/:id/chapters/:cid')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Delete a working-version chapter' })
+  @ApiOperation({
+    summary: 'Delete a working-version chapter (clones published working first)',
+  })
   @ApiParam({ name: 'id', example: 'paisajes-iii' })
   @ApiParam({ name: 'cid', example: 'uuid-chapter' })
   @ApiNoContentResponse()
@@ -170,5 +176,38 @@ export class AdminController {
   @ApiConflictResponse({ description: 'CHAPTER_ON_PUBLISHED' })
   async deleteChapter(@Param('id') id: string, @Param('cid') cid: string) {
     await this.admin.deleteChapter(id, cid);
+  }
+
+  @Post('courses/:id/revisions/submit')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Submit working draft revision for review; course.status stays published',
+  })
+  @ApiParam({ name: 'id', example: 'paisajes-i' })
+  @ApiOkResponse({ type: AdminCourseDto })
+  @ApiNotFoundResponse({ description: 'COURSE_NOT_FOUND' })
+  @ApiConflictResponse({
+    description: 'STATE_TRANSITION_FORBIDDEN — working is not a draft clone',
+  })
+  submitRevision(@Param('id') id: string) {
+    return this.admin.submitRevision(id);
+  }
+
+  @Post('courses/:id/revisions/publish')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Publish in_review working revision as publishedVersionId; course.status stays published',
+  })
+  @ApiParam({ name: 'id', example: 'paisajes-i' })
+  @ApiOkResponse({ type: AdminCourseDto })
+  @ApiNotFoundResponse({ description: 'COURSE_NOT_FOUND' })
+  @ApiConflictResponse({
+    description:
+      'STATE_TRANSITION_FORBIDDEN if working is not in_review; COURSE_EMPTY if 0 chapters',
+  })
+  publishRevision(@Param('id') id: string) {
+    return this.admin.publishRevision(id);
   }
 }

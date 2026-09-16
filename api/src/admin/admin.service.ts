@@ -165,17 +165,16 @@ export class AdminService {
   }
 
   async addChapter(courseId: string, title: string, url: string) {
-    const course = await this.requireCourse(courseId);
-    this.assertWorkingMutable(course);
+    const prepared = await this.prepareWorkingMutation(courseId);
     const video = await this.resolveVideo(url);
     const last = await this.prisma.chapter.findMany({
-      where: { versionId: course.workingVersionId! },
+      where: { versionId: prepared.course.workingVersionId! },
       orderBy: { position: 'desc' },
     });
     const position = (last[0]?.position ?? 0) + 1;
     const chapter = await this.prisma.chapter.create({
       data: {
-        versionId: course.workingVersionId!,
+        versionId: prepared.course.workingVersionId!,
         videoId: video.id,
         title,
         position,
@@ -186,13 +185,15 @@ export class AdminService {
   }
 
   async reorderChapters(courseId: string, chapterIds: string[]) {
-    const course = await this.requireCourse(courseId);
-    this.assertWorkingMutable(course);
+    const prepared = await this.prepareWorkingMutation(courseId);
+    const remappedIds = chapterIds.map(
+      (id) => prepared.chapterIdMap.get(id) ?? id,
+    );
     const working = await this.prisma.chapter.findMany({
-      where: { versionId: course.workingVersionId! },
+      where: { versionId: prepared.course.workingVersionId! },
     });
     const workingIds = working.map((chapter) => chapter.id);
-    if (!this.isExactIdSet(workingIds, chapterIds)) {
+    if (!this.isExactIdSet(workingIds, remappedIds)) {
       throw new HttpException(
         {
           code: 'CHAPTER_SET_MISMATCH',
@@ -203,15 +204,15 @@ export class AdminService {
     }
 
     await this.prisma.$transaction(async (tx) => {
-      for (let i = 0; i < chapterIds.length; i++) {
+      for (let i = 0; i < remappedIds.length; i++) {
         await tx.chapter.update({
-          where: { id: chapterIds[i] },
+          where: { id: remappedIds[i] },
           data: { position: -(i + 1) },
         });
       }
-      for (let i = 0; i < chapterIds.length; i++) {
+      for (let i = 0; i < remappedIds.length; i++) {
         await tx.chapter.update({
-          where: { id: chapterIds[i] },
+          where: { id: remappedIds[i] },
           data: { position: i + 1 },
         });
       }
@@ -226,16 +227,16 @@ export class AdminService {
     title: string,
     url?: string,
   ) {
-    const course = await this.requireCourse(courseId);
-    this.assertWorkingMutable(course);
-    await this.requireWorkingChapter(course, chapterId);
+    const prepared = await this.prepareWorkingMutation(courseId);
+    const targetId = prepared.chapterIdMap.get(chapterId) ?? chapterId;
+    await this.requireWorkingChapter(prepared.course, targetId);
     const data: { title: string; videoId?: string } = { title };
     if (url) {
       const video = await this.resolveVideo(url);
       data.videoId = video.id;
     }
     const chapter = await this.prisma.chapter.update({
-      where: { id: chapterId },
+      where: { id: targetId },
       data,
       include: { video: true },
     });
@@ -243,12 +244,12 @@ export class AdminService {
   }
 
   async deleteChapter(courseId: string, chapterId: string): Promise<void> {
-    const course = await this.requireCourse(courseId);
-    this.assertWorkingMutable(course);
-    await this.requireWorkingChapter(course, chapterId);
-    await this.prisma.chapter.delete({ where: { id: chapterId } });
+    const prepared = await this.prepareWorkingMutation(courseId);
+    const targetId = prepared.chapterIdMap.get(chapterId) ?? chapterId;
+    await this.requireWorkingChapter(prepared.course, targetId);
+    await this.prisma.chapter.delete({ where: { id: targetId } });
     const remaining = await this.prisma.chapter.findMany({
-      where: { versionId: course.workingVersionId! },
+      where: { versionId: prepared.course.workingVersionId! },
       orderBy: { position: 'asc' },
     });
     await this.prisma.$transaction(async (tx) => {
@@ -267,6 +268,65 @@ export class AdminService {
     });
   }
 
+  async submitRevision(courseId: string) {
+    const course = await this.requireCourse(courseId);
+    const working = await this.requireWorkingVersion(course);
+    if (
+      course.workingVersionId === course.publishedVersionId ||
+      working.revisionStatus !== 'draft'
+    ) {
+      throw new HttpException(
+        {
+          code: 'STATE_TRANSITION_FORBIDDEN',
+          message: stateMachineMessage('STATE_TRANSITION_FORBIDDEN'),
+        },
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    await this.prisma.courseVersion.update({
+      where: { id: working.id },
+      data: { revisionStatus: 'in_review' },
+    });
+    return this.prisma.course.findUnique({ where: { id: courseId } });
+  }
+
+  async publishRevision(courseId: string) {
+    const course = await this.requireCourse(courseId);
+    const working = await this.requireWorkingVersion(course);
+    if (working.revisionStatus !== 'in_review') {
+      throw new HttpException(
+        {
+          code: 'STATE_TRANSITION_FORBIDDEN',
+          message: stateMachineMessage('STATE_TRANSITION_FORBIDDEN'),
+        },
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    const chapters = await this.prisma.chapter.findMany({
+      where: { versionId: working.id },
+    });
+    if (chapters.length < 1) {
+      throw new HttpException(
+        {
+          code: 'COURSE_EMPTY',
+          message: stateMachineMessage('COURSE_EMPTY'),
+        },
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    await this.prisma.courseVersion.update({
+      where: { id: working.id },
+      data: { revisionStatus: 'published' },
+    });
+    return this.prisma.course.update({
+      where: { id: courseId },
+      data: { publishedVersionId: working.id },
+    });
+  }
+
   private async requireCourse(courseId: string) {
     const course = await this.prisma.course.findUnique({
       where: { id: courseId },
@@ -280,6 +340,92 @@ export class AdminService {
     return course;
   }
 
+  private async prepareWorkingMutation(courseId: string): Promise<{
+    course: CourseRow;
+    chapterIdMap: Map<string, string>;
+  }> {
+    const course = await this.requireCourse(courseId);
+    const cloned = await this.clonePublishedWorkingIfNeeded(course);
+    this.assertWorkingMutable(cloned.course);
+    return cloned;
+  }
+
+  private async clonePublishedWorkingIfNeeded(course: CourseRow): Promise<{
+    course: CourseRow;
+    chapterIdMap: Map<string, string>;
+  }> {
+    const empty = new Map<string, string>();
+    if (
+      course.status !== 'published' ||
+      !course.workingVersionId ||
+      !course.publishedVersionId ||
+      course.workingVersionId !== course.publishedVersionId
+    ) {
+      return { course, chapterIdMap: empty };
+    }
+
+    const source = await this.prisma.courseVersion.findUnique({
+      where: { id: course.publishedVersionId },
+    });
+    if (!source) {
+      throw new HttpException(
+        { code: 'COURSE_NOT_FOUND', message: 'Unknown course' },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const sourceChapters = await this.prisma.chapter.findMany({
+      where: { versionId: course.publishedVersionId },
+      orderBy: { position: 'asc' },
+    });
+
+    return this.prisma.$transaction(async (tx) => {
+      const clone = await tx.courseVersion.create({
+        data: {
+          courseId: course.id,
+          revisionStatus: 'draft',
+          versionNumber: source.versionNumber + 1,
+        },
+      });
+      const chapterIdMap = new Map<string, string>();
+      for (const chapter of sourceChapters) {
+        const copied = await tx.chapter.create({
+          data: {
+            versionId: clone.id,
+            videoId: chapter.videoId,
+            title: chapter.title,
+            position: chapter.position,
+          },
+        });
+        chapterIdMap.set(chapter.id, copied.id);
+      }
+      const updated = await tx.course.update({
+        where: { id: course.id },
+        data: { workingVersionId: clone.id },
+      });
+      return { course: updated as CourseRow, chapterIdMap };
+    });
+  }
+
+  private async requireWorkingVersion(course: CourseRow) {
+    if (!course.workingVersionId) {
+      throw new HttpException(
+        { code: 'COURSE_NOT_FOUND', message: 'Unknown course' },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    const version = await this.prisma.courseVersion.findUnique({
+      where: { id: course.workingVersionId },
+    });
+    if (!version) {
+      throw new HttpException(
+        { code: 'COURSE_NOT_FOUND', message: 'Unknown course' },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    return version;
+  }
+
   private assertWorkingMutable(course: CourseRow): void {
     if (!course.workingVersionId) {
       throw new HttpException(
@@ -288,6 +434,7 @@ export class AdminService {
       );
     }
     if (
+      course.status !== 'published' &&
       course.publishedVersionId &&
       course.workingVersionId === course.publishedVersionId
     ) {

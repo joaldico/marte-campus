@@ -3,7 +3,13 @@ import { Test, TestingModule } from '@nestjs/testing';
 import * as request from 'supertest';
 import { AppModule } from '../../src/app.module';
 import { PrismaService } from '../../src/prisma/prisma.service';
-import { SEED_COURSES, SEED_USERS, VIDEO_DURATIONS } from '../../prisma/seed';
+import {
+  SEED_COURSES,
+  SEED_ENROLLMENTS,
+  SEED_USERS,
+  VIDEO_DURATIONS,
+  buildSeedPlaybackRecords,
+} from '../../prisma/seed';
 
 function cookieHeader(setCookie: string | string[] | undefined): string {
   const parts = Array.isArray(setCookie)
@@ -62,6 +68,12 @@ function seedPrisma() {
     publishedVersionId: course.status === 'published' ? course.version.id : null,
     workingVersionId: course.version.id,
   }));
+  const enrollments = SEED_ENROLLMENTS.map((row) => ({
+    id: `enroll-${row.userId}-${row.courseId}`,
+    userId: row.userId,
+    courseId: row.courseId,
+  }));
+  const events = buildSeedPlaybackRecords();
 
   const hydrateVersion = (version: VersionRow, include?: Record<string, unknown>) => {
     const row: Record<string, unknown> = { ...version };
@@ -122,6 +134,23 @@ function seedPrisma() {
       row.versions = versions
         .filter((item) => item.courseId === course.id)
         .map((item) => hydrateVersion(item, nested));
+    }
+    const enrollmentsArg = include?.enrollments as
+      | boolean
+      | { where?: { userId?: string } }
+      | undefined;
+    if (enrollmentsArg) {
+      const userId =
+        enrollmentsArg === true ? undefined : enrollmentsArg.where?.userId;
+      row.enrollments = enrollments.filter((item) => {
+        if (item.courseId !== course.id) {
+          return false;
+        }
+        if (userId && item.userId !== userId) {
+          return false;
+        }
+        return true;
+      });
     }
     return row;
   };
@@ -374,6 +403,57 @@ function seedPrisma() {
       return removed;
     }),
   };
+  prisma.enrollment = {
+    findMany: jest.fn(
+      async (args: { where?: { userId?: string; courseId?: string } } = {}) => {
+        return enrollments.filter((row) => {
+          if (args.where?.userId && row.userId !== args.where.userId) {
+            return false;
+          }
+          if (args.where?.courseId && row.courseId !== args.where.courseId) {
+            return false;
+          }
+          return true;
+        });
+      },
+    ),
+  };
+  prisma.playbackEvent = {
+    findMany: jest.fn(
+      async (
+        args: {
+          where?: { userId?: string; accepted?: boolean; videoId?: unknown };
+        } = {},
+      ) => {
+        return events.filter((row) => {
+          if (args.where?.userId && row.userId !== args.where.userId) {
+            return false;
+          }
+          if (
+            args.where?.accepted !== undefined &&
+            row.accepted !== args.where.accepted
+          ) {
+            return false;
+          }
+          const videoFilter = args.where?.videoId;
+          if (videoFilter == null) {
+            return true;
+          }
+          if (typeof videoFilter === 'string') {
+            return row.videoId === videoFilter;
+          }
+          if (
+            typeof videoFilter === 'object' &&
+            videoFilter !== null &&
+            'in' in videoFilter
+          ) {
+            return (videoFilter as { in: string[] }).in.includes(row.videoId);
+          }
+          return true;
+        });
+      },
+    ),
+  };
   prisma.$transaction = jest.fn(async (arg: unknown) => {
     if (typeof arg === 'function') {
       return (arg as (tx: typeof prisma) => Promise<unknown>)(prisma);
@@ -387,7 +467,7 @@ function seedPrisma() {
   return prisma;
 }
 
-describe('Admin courses HTTP (T-6.1 / CA-05)', () => {
+describe('Admin courses HTTP (T-6.1 / T-6.3 / CA-05 / CA-07)', () => {
   let app: INestApplication;
 
   beforeEach(async () => {
@@ -592,7 +672,130 @@ describe('Admin courses HTTP (T-6.1 / CA-05)', () => {
     expect(response.body.status).toBe('draft');
   });
 
-  it('returns 409 CHAPTER_ON_PUBLISHED when mutating Paisajes I working===published', async () => {
+  it('CA-07: Ana PATCH Paisajes I chapter 2 clones working; Bruno sees new title only after submit+publish; playa uniqueSeconds stays 10', async () => {
+    const ana = await loginAs('ana');
+    const bruno = await loginAs('bruno');
+
+    const before = await request(app.getHttpServer())
+      .get('/catalog/courses/paisajes-i')
+      .set('Cookie', bruno);
+    expect(before.status).toBe(200);
+    expect(before.body.chapters.map((chapter: { title: string }) => chapter.title)).toEqual([
+      'Playa',
+      'Cascada',
+      'Bosque',
+    ]);
+    const playaBefore = before.body.chapters.find(
+      (chapter: { videoId: string }) => chapter.videoId === 'playa',
+    );
+    const cascadaBefore = before.body.chapters.find(
+      (chapter: { videoId: string }) => chapter.videoId === 'cascada',
+    );
+    expect(playaBefore.chapterProgress.uniqueSeconds).toBe(10);
+    expect(cascadaBefore.chapterProgress.uniqueSeconds).toBe(10);
+
+    const patched = await request(app.getHttpServer())
+      .patch('/admin/courses/paisajes-i/chapters/paisajes-i-ch-2')
+      .set('Cookie', ana)
+      .send({ title: 'Cascada editada' });
+    expect(patched.status).toBe(200);
+    expect(patched.body.title).toBe('Cascada editada');
+    expect(patched.body.id).not.toBe('paisajes-i-ch-2');
+
+    const adminAfterClone = await request(app.getHttpServer())
+      .get('/admin/courses/paisajes-i')
+      .set('Cookie', ana);
+    expect(adminAfterClone.status).toBe(200);
+    expect(adminAfterClone.body.status).toBe('published');
+    expect(adminAfterClone.body.publishedVersionId).toBe('paisajes-i-v1');
+    expect(adminAfterClone.body.workingVersionId).not.toBe(
+      adminAfterClone.body.publishedVersionId,
+    );
+    expect(adminAfterClone.body.versions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'paisajes-i-v1',
+          revisionStatus: 'published',
+          versionNumber: 1,
+        }),
+        expect.objectContaining({
+          id: adminAfterClone.body.workingVersionId,
+          revisionStatus: 'draft',
+          versionNumber: 2,
+        }),
+      ]),
+    );
+    expect(
+      adminAfterClone.body.chapters.map((chapter: { title: string }) => chapter.title),
+    ).toEqual(['Playa', 'Cascada editada', 'Bosque']);
+
+    const brunoDuringDraft = await request(app.getHttpServer())
+      .get('/catalog/courses/paisajes-i')
+      .set('Cookie', bruno);
+    expect(brunoDuringDraft.status).toBe(200);
+    expect(
+      brunoDuringDraft.body.chapters.map((chapter: { title: string }) => chapter.title),
+    ).toEqual(['Playa', 'Cascada', 'Bosque']);
+    const playaDraft = brunoDuringDraft.body.chapters.find(
+      (chapter: { videoId: string }) => chapter.videoId === 'playa',
+    );
+    expect(playaDraft.chapterProgress.uniqueSeconds).toBe(10);
+    expect(playaDraft.ranges).toEqual(playaBefore.ranges);
+
+    const submitted = await request(app.getHttpServer())
+      .post('/admin/courses/paisajes-i/revisions/submit')
+      .set('Cookie', ana);
+    expect(submitted.status).toBe(200);
+    expect(submitted.body.status).toBe('published');
+    expect(submitted.body.workingVersionId).toBe(adminAfterClone.body.workingVersionId);
+    expect(submitted.body.publishedVersionId).toBe('paisajes-i-v1');
+
+    const afterSubmit = await request(app.getHttpServer())
+      .get('/admin/courses/paisajes-i')
+      .set('Cookie', ana);
+    expect(afterSubmit.status).toBe(200);
+    expect(afterSubmit.body.status).toBe('published');
+    expect(afterSubmit.body.versions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: afterSubmit.body.workingVersionId,
+          revisionStatus: 'in_review',
+        }),
+      ]),
+    );
+
+    const published = await request(app.getHttpServer())
+      .post('/admin/courses/paisajes-i/revisions/publish')
+      .set('Cookie', ana);
+    expect(published.status).toBe(200);
+    expect(published.body.status).toBe('published');
+    expect(published.body.publishedVersionId).toBe(published.body.workingVersionId);
+    expect(published.body.workingVersionId).toBe(adminAfterClone.body.workingVersionId);
+
+    const brunoAfter = await request(app.getHttpServer())
+      .get('/catalog/courses/paisajes-i')
+      .set('Cookie', bruno);
+    expect(brunoAfter.status).toBe(200);
+    expect(brunoAfter.body.chapters.map((chapter: { title: string }) => chapter.title)).toEqual([
+      'Playa',
+      'Cascada editada',
+      'Bosque',
+    ]);
+    const playaAfter = brunoAfter.body.chapters.find(
+      (chapter: { videoId: string }) => chapter.videoId === 'playa',
+    );
+    const cascadaAfter = brunoAfter.body.chapters.find(
+      (chapter: { videoId: string }) => chapter.videoId === 'cascada',
+    );
+    expect(playaAfter.chapterProgress.uniqueSeconds).toBe(10);
+    expect(cascadaAfter.chapterProgress.uniqueSeconds).toBe(10);
+    expect(playaAfter.ranges).toEqual(playaBefore.ranges);
+    expect(cascadaAfter.chapterProgress.ratio).toBeCloseTo(
+      cascadaBefore.chapterProgress.ratio,
+    );
+  });
+
+  it('clones published working version on POST chapter when working === published', async () => {
     const cookie = await loginAs('ana');
     const playa = VIDEO_DURATIONS.find((video) => video.id === 'playa');
     if (!playa) {
@@ -603,30 +806,106 @@ describe('Admin courses HTTP (T-6.1 / CA-05)', () => {
       .post('/admin/courses/paisajes-i/chapters')
       .set('Cookie', cookie)
       .send({ title: 'Extra', url: playa.url });
-    expect(add.status).toBe(409);
-    expect(add.body.code).toBe('CHAPTER_ON_PUBLISHED');
+    expect(add.status).toBe(201);
+    expect(add.body.title).toBe('Extra');
+    expect(add.body.position).toBe(4);
 
+    const afterAdd = await request(app.getHttpServer())
+      .get('/admin/courses/paisajes-i')
+      .set('Cookie', cookie);
+    expect(afterAdd.status).toBe(200);
+    expect(afterAdd.body.publishedVersionId).toBe('paisajes-i-v1');
+    expect(afterAdd.body.workingVersionId).not.toBe(afterAdd.body.publishedVersionId);
+    expect(afterAdd.body.chapters).toHaveLength(4);
+    expect(afterAdd.body.chapters.map((chapter: { id: string }) => chapter.id)).not.toEqual(
+      expect.arrayContaining(['paisajes-i-ch-1', 'paisajes-i-ch-2', 'paisajes-i-ch-3']),
+    );
+  });
+
+  it('clones published working version when reordering Paisajes I chapters', async () => {
+    const cookie = await loginAs('ana');
     const order = await request(app.getHttpServer())
       .patch('/admin/courses/paisajes-i/chapters/order')
       .set('Cookie', cookie)
       .send({
         chapterIds: ['paisajes-i-ch-3', 'paisajes-i-ch-1', 'paisajes-i-ch-2'],
       });
-    expect(order.status).toBe(409);
-    expect(order.body.code).toBe('CHAPTER_ON_PUBLISHED');
+    expect(order.status).toBe(200);
+    expect(order.body.publishedVersionId).toBe('paisajes-i-v1');
+    expect(order.body.workingVersionId).not.toBe(order.body.publishedVersionId);
+    expect(order.body.chapters.map((chapter: { title: string }) => chapter.title)).toEqual([
+      'Bosque',
+      'Playa',
+      'Cascada',
+    ]);
+    expect(order.body.chapters.map((chapter: { id: string }) => chapter.id)).not.toContain(
+      'paisajes-i-ch-1',
+    );
+  });
 
-    const patch = await request(app.getHttpServer())
-      .patch('/admin/courses/paisajes-i/chapters/paisajes-i-ch-1')
-      .set('Cookie', cookie)
-      .send({ title: 'Playa edit' });
-    expect(patch.status).toBe(409);
-    expect(patch.body.code).toBe('CHAPTER_ON_PUBLISHED');
-
+  it('clones published working version when deleting a Paisajes I chapter', async () => {
+    const cookie = await loginAs('ana');
     const del = await request(app.getHttpServer())
       .delete('/admin/courses/paisajes-i/chapters/paisajes-i-ch-1')
       .set('Cookie', cookie);
-    expect(del.status).toBe(409);
-    expect(del.body.code).toBe('CHAPTER_ON_PUBLISHED');
+    expect([200, 204]).toContain(del.status);
+
+    const detail = await request(app.getHttpServer())
+      .get('/admin/courses/paisajes-i')
+      .set('Cookie', cookie);
+    expect(detail.status).toBe(200);
+    expect(detail.body.publishedVersionId).toBe('paisajes-i-v1');
+    expect(detail.body.workingVersionId).not.toBe(detail.body.publishedVersionId);
+    expect(detail.body.chapters.map((chapter: { title: string }) => chapter.title)).toEqual([
+      'Cascada',
+      'Bosque',
+    ]);
+  });
+
+  it('mutates working only once a distinct clone exists; 409 CHAPTER_ON_PUBLISHED for published-by-id', async () => {
+    const cookie = await loginAs('ana');
+
+    const first = await request(app.getHttpServer())
+      .patch('/admin/courses/paisajes-i/chapters/paisajes-i-ch-2')
+      .set('Cookie', cookie)
+      .send({ title: 'Cascada editada' });
+    expect(first.status).toBe(200);
+    const workingChapterId = first.body.id as string;
+
+    const detail = await request(app.getHttpServer())
+      .get('/admin/courses/paisajes-i')
+      .set('Cookie', cookie);
+    expect(detail.status).toBe(200);
+    const workingVersionId = detail.body.workingVersionId as string;
+    expect(detail.body.versions).toHaveLength(2);
+
+    const second = await request(app.getHttpServer())
+      .patch(`/admin/courses/paisajes-i/chapters/${workingChapterId}`)
+      .set('Cookie', cookie)
+      .send({ title: 'Cascada v2' });
+    expect(second.status).toBe(200);
+    expect(second.body.id).toBe(workingChapterId);
+    expect(second.body.title).toBe('Cascada v2');
+
+    const afterSecond = await request(app.getHttpServer())
+      .get('/admin/courses/paisajes-i')
+      .set('Cookie', cookie);
+    expect(afterSecond.status).toBe(200);
+    expect(afterSecond.body.workingVersionId).toBe(workingVersionId);
+    expect(afterSecond.body.versions).toHaveLength(2);
+
+    const publishedById = await request(app.getHttpServer())
+      .patch('/admin/courses/paisajes-i/chapters/paisajes-i-ch-2')
+      .set('Cookie', cookie)
+      .send({ title: 'should not land' });
+    expect(publishedById.status).toBe(409);
+    expect(publishedById.body.code).toBe('CHAPTER_ON_PUBLISHED');
+
+    const deletePublished = await request(app.getHttpServer())
+      .delete('/admin/courses/paisajes-i/chapters/paisajes-i-ch-1')
+      .set('Cookie', cookie);
+    expect(deletePublished.status).toBe(409);
+    expect(deletePublished.body.code).toBe('CHAPTER_ON_PUBLISHED');
   });
 
   it('returns 400 when order ids are not exactly the working set', async () => {
@@ -842,5 +1121,132 @@ describe('Admin courses HTTP (T-6.1 / CA-05)', () => {
 
     expect(response.status).toBe(404);
     expect(response.body.code).toBe('COURSE_NOT_FOUND');
+  });
+
+  it('returns 401 without a session cookie on revision submit/publish', async () => {
+    const submit = await request(app.getHttpServer()).post(
+      '/admin/courses/paisajes-i/revisions/submit',
+    );
+    expect(submit.status).toBe(401);
+
+    const publish = await request(app.getHttpServer()).post(
+      '/admin/courses/paisajes-i/revisions/publish',
+    );
+    expect(publish.status).toBe(401);
+  });
+
+  it('returns 403 FORBIDDEN when Bruno submits or publishes a revision', async () => {
+    const cookie = await loginAs('bruno');
+
+    const submit = await request(app.getHttpServer())
+      .post('/admin/courses/paisajes-i/revisions/submit')
+      .set('Cookie', cookie);
+    expect(submit.status).toBe(403);
+    expect(submit.body.code).toBe('FORBIDDEN');
+
+    const publish = await request(app.getHttpServer())
+      .post('/admin/courses/paisajes-i/revisions/publish')
+      .set('Cookie', cookie);
+    expect(publish.status).toBe(403);
+    expect(publish.body.code).toBe('FORBIDDEN');
+  });
+
+  it('returns 409 STATE_TRANSITION_FORBIDDEN when submitting with working === published', async () => {
+    const cookie = await loginAs('ana');
+    const response = await request(app.getHttpServer())
+      .post('/admin/courses/paisajes-i/revisions/submit')
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe('STATE_TRANSITION_FORBIDDEN');
+    expect(response.body.message).toBeTruthy();
+  });
+
+  it('returns 409 STATE_TRANSITION_FORBIDDEN when publishing a draft revision', async () => {
+    const cookie = await loginAs('ana');
+    const patched = await request(app.getHttpServer())
+      .patch('/admin/courses/paisajes-i/chapters/paisajes-i-ch-2')
+      .set('Cookie', cookie)
+      .send({ title: 'Cascada editada' });
+    expect(patched.status).toBe(200);
+
+    const response = await request(app.getHttpServer())
+      .post('/admin/courses/paisajes-i/revisions/publish')
+      .set('Cookie', cookie);
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe('STATE_TRANSITION_FORBIDDEN');
+    expect(response.body.message).toBeTruthy();
+  });
+
+  it('returns 409 STATE_TRANSITION_FORBIDDEN when submitting a revision that is not draft', async () => {
+    const cookie = await loginAs('ana');
+    const patched = await request(app.getHttpServer())
+      .patch('/admin/courses/paisajes-i/chapters/paisajes-i-ch-2')
+      .set('Cookie', cookie)
+      .send({ title: 'Cascada editada' });
+    expect(patched.status).toBe(200);
+
+    const first = await request(app.getHttpServer())
+      .post('/admin/courses/paisajes-i/revisions/submit')
+      .set('Cookie', cookie);
+    expect(first.status).toBe(200);
+
+    const second = await request(app.getHttpServer())
+      .post('/admin/courses/paisajes-i/revisions/submit')
+      .set('Cookie', cookie);
+    expect(second.status).toBe(409);
+    expect(second.body.code).toBe('STATE_TRANSITION_FORBIDDEN');
+  });
+
+  it('returns 409 COURSE_EMPTY when publishing an in_review revision with 0 chapters', async () => {
+    const cookie = await loginAs('ana');
+    const del1 = await request(app.getHttpServer())
+      .delete('/admin/courses/paisajes-i/chapters/paisajes-i-ch-1')
+      .set('Cookie', cookie);
+    expect([200, 204]).toContain(del1.status);
+
+    const afterClone = await request(app.getHttpServer())
+      .get('/admin/courses/paisajes-i')
+      .set('Cookie', cookie);
+    expect(afterClone.status).toBe(200);
+    const workingIds = afterClone.body.chapters.map(
+      (chapter: { id: string }) => chapter.id,
+    ) as string[];
+    for (const chapterId of workingIds) {
+      const removed = await request(app.getHttpServer())
+        .delete(`/admin/courses/paisajes-i/chapters/${chapterId}`)
+        .set('Cookie', cookie);
+      expect([200, 204]).toContain(removed.status);
+    }
+
+    const submitted = await request(app.getHttpServer())
+      .post('/admin/courses/paisajes-i/revisions/submit')
+      .set('Cookie', cookie);
+    expect(submitted.status).toBe(200);
+
+    const emptyPublish = await request(app.getHttpServer())
+      .post('/admin/courses/paisajes-i/revisions/publish')
+      .set('Cookie', cookie);
+    expect(emptyPublish.status).toBe(409);
+    expect(emptyPublish.body.code).toBe('COURSE_EMPTY');
+    expect(emptyPublish.body.message).toBeTruthy();
+    expect(emptyPublish.body.publishedVersionId).not.toBe(
+      afterClone.body.workingVersionId,
+    );
+  });
+
+  it('returns 404 COURSE_NOT_FOUND for revision submit/publish on an unknown course', async () => {
+    const cookie = await loginAs('ana');
+    const submit = await request(app.getHttpServer())
+      .post('/admin/courses/does-not-exist/revisions/submit')
+      .set('Cookie', cookie);
+    expect(submit.status).toBe(404);
+    expect(submit.body.code).toBe('COURSE_NOT_FOUND');
+
+    const publish = await request(app.getHttpServer())
+      .post('/admin/courses/does-not-exist/revisions/publish')
+      .set('Cookie', cookie);
+    expect(publish.status).toBe(404);
+    expect(publish.body.code).toBe('COURSE_NOT_FOUND');
   });
 });
