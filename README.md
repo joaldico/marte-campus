@@ -70,6 +70,12 @@ cd web && npm ci && npm run dev   # Vite en :5173, proxy /api → :3000
 
 Tests: `cd api && npm test -- --runInBand && npx tsc --noEmit` · `cd web && npm run build`.
 
+CI en GitHub Actions (push a `main`): tests de API + `tsc` + build del Vue. El deploy a la demo **solo corre si esos tests pasan**.
+
+## Decisiones
+
+[`DECISIONS.md`](DECISIONS.md) — estados solo hacia adelante, eventos por vídeo (no por inscripción), `rate` metadato, proxy Range porque archive.org no envía CORS, duraciones `mvhd` commiteadas.
+
 ## Licencia
 
 UNLICENSED — entrega de prueba técnica.
