@@ -32,8 +32,12 @@ async function chooseUser(user: PublicUser): Promise<void> {
   loggingInId.value = user.id
   error.value = null
   try {
-    await loginAs(user.id)
-    await router.push({ name: 'catalog' })
+    const session = await loginAs(user.id)
+    await router.push(
+      session.role === 'admin'
+        ? { name: 'admin-courses' }
+        : { name: 'catalog' },
+    )
   } catch {
     error.value = 'No se pudo iniciar sesión. Inténtalo de nuevo.'
   } finally {
