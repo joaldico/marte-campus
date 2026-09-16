@@ -1,0 +1,28 @@
+# secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# deps & build
+node_modules/
+dist/
+coverage/
+.turbo/
+.vite/
+*.tsbuildinfo
+
+# docker / data
+postgres-data/
+*.log
+
+# os / ide
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# artifacts locales
+artifacts/tmp/
