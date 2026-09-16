@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { ensureSession } from '../auth/session'
 import AdminCourseDetailPage from '../pages/admin/AdminCourseDetailPage.vue'
 import AdminCoursesPage from '../pages/admin/AdminCoursesPage.vue'
+import AdminHeatmapPage from '../pages/admin/AdminHeatmapPage.vue'
 import CatalogPage from '../pages/CatalogPage.vue'
 import CoursePage from '../pages/CoursePage.vue'
 import LoginPage from '../pages/LoginPage.vue'
@@ -43,6 +44,12 @@ const router = createRouter({
       path: '/admin/cursos/:id',
       name: 'admin-course',
       component: AdminCourseDetailPage,
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
+    {
+      path: '/admin/heatmap',
+      name: 'admin-heatmap',
+      component: AdminHeatmapPage,
       meta: { requiresAuth: true, requiresAdmin: true },
     },
   ],

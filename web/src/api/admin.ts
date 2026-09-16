@@ -140,3 +140,44 @@ export function publishAdminRevision(courseId: string): Promise<AdminCourse> {
     { method: 'POST' },
   )
 }
+
+export type HeatmapBucket = {
+  t: number
+  watchedWeight: number
+  skipWeight: number
+}
+
+export type VideoHeatmap = {
+  durationSeconds: number
+  buckets: HeatmapBucket[]
+}
+
+export type ImportRejectCount = {
+  reason: string
+  count: number
+}
+
+export type ImportEventsResult = {
+  accepted: number
+  rejected: ImportRejectCount[]
+}
+
+export function getAdminVideoHeatmap(videoId: string): Promise<VideoHeatmap> {
+  return apiJson<VideoHeatmap>(
+    `/api/admin/videos/${encodeURIComponent(videoId)}/heatmap`,
+  )
+}
+
+export async function importAdminEvents(file: File): Promise<ImportEventsResult> {
+  const body = new FormData()
+  body.append('file', file)
+  const res = await fetch('/api/admin/events/import', {
+    method: 'POST',
+    body,
+    credentials: 'include',
+  })
+  if (!res.ok) {
+    throw new ApiError('La petición no se pudo completar.', res.status)
+  }
+  return (await res.json()) as ImportEventsResult
+}

@@ -33,6 +33,9 @@ watch(
           <router-link v-if="isAdmin" :to="{ name: 'admin-courses' }">
             Cursos
           </router-link>
+          <router-link v-if="isAdmin" :to="{ name: 'admin-heatmap' }">
+            Mapa de calor
+          </router-link>
         </nav>
       </n-layout-header>
       <n-layout-content class="content">
