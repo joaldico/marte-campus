@@ -70,7 +70,6 @@ model Video {
   url             String
   durationSeconds Float?
   chapters        Chapter[]
-  playbackEvents  PlaybackEvent[]
   playbackCursors PlaybackCursor[]
 }
 
@@ -108,7 +107,6 @@ model PlaybackEvent {
   accepted     Boolean
   rejectReason String?
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  video        Video    @relation(fields: [videoId], references: [id])
 }
 
 model PlaybackCursor {
