@@ -35,6 +35,9 @@ let seekOrigin: number | null = null
 let isSeeking = false
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null
 let disposed = false
+let chapterEpoch = 0
+let nextPostSeq = 0
+let appliedPostSeq = 0
 
 function playbackRate(): number {
   const rate = videoEl.value?.playbackRate
@@ -74,6 +77,16 @@ function takeOpenInterval(): { from: number; to: number } | null {
   return interval
 }
 
+function takeSeekCloseInterval(): { from: number; to: number } | null {
+  const origin = seekOrigin
+  if (openFrom == null || origin == null || origin <= openFrom) {
+    return null
+  }
+  const closed = { from: openFrom, to: origin }
+  openFrom = origin
+  return closed
+}
+
 function eventBody(interval: { from: number; to: number }) {
   return {
     videoId: chapter.value?.videoId ?? '',
@@ -83,18 +96,48 @@ function eventBody(interval: { from: number; to: number }) {
   }
 }
 
+function isCurrentPlayback(
+  epoch: number,
+  chapterTag: string,
+  videoTag: string,
+): boolean {
+  const current = chapter.value
+  return (
+    !disposed &&
+    epoch === chapterEpoch &&
+    chapterId.value === chapterTag &&
+    current != null &&
+    current.id === chapterTag &&
+    current.videoId === videoTag
+  )
+}
+
 async function postInterval(interval: {
   from: number
   to: number
 }): Promise<void> {
-  if (!chapter.value?.videoId) {
+  const videoTag = chapter.value?.videoId
+  if (!videoTag) {
     return
   }
+  const epoch = chapterEpoch
+  const chapterTag = chapterId.value
+  const seq = (nextPostSeq += 1)
   try {
-    const response = await postPlaybackEvent(eventBody(interval))
-    if (!disposed) {
-      ranges.value = response.ranges
+    const response = await postPlaybackEvent({
+      videoId: videoTag,
+      from: interval.from,
+      to: interval.to,
+      rate: playbackRate(),
+    })
+    if (!isCurrentPlayback(epoch, chapterTag, videoTag)) {
+      return
     }
+    if (seq < appliedPostSeq) {
+      return
+    }
+    appliedPostSeq = seq
+    ranges.value = response.ranges
   } catch {
     /* ignore failed posts so the happy path stays quiet */
   }
@@ -109,7 +152,7 @@ async function flushJson(): Promise<void> {
 }
 
 function flushKeepalive(): void {
-  const interval = takeOpenInterval()
+  const interval = isSeeking ? takeSeekCloseInterval() : takeOpenInterval()
   if (!interval || !chapter.value?.videoId) {
     return
   }
@@ -170,10 +213,7 @@ function onSeeking(): void {
 
 function onSeeked(): void {
   const origin = seekOrigin
-  const closed =
-    openFrom != null && origin != null && origin > openFrom
-      ? { from: openFrom, to: origin }
-      : null
+  const closed = takeSeekCloseInterval()
   isSeeking = false
   seekOrigin = null
   const video = videoEl.value
@@ -225,6 +265,11 @@ async function loadChapter(): Promise<void> {
   if (disposed) {
     return
   }
+  const requestedId = chapterId.value
+  chapterEpoch += 1
+  const epoch = chapterEpoch
+  nextPostSeq = 0
+  appliedPostSeq = 0
   resetOpenInterval()
   videoDuration.value = 0
   loading.value = true
@@ -232,10 +277,24 @@ async function loadChapter(): Promise<void> {
   chapter.value = null
   ranges.value = []
   try {
-    const data = await getPlayerChapter(chapterId.value)
+    const data = await getPlayerChapter(requestedId)
+    if (
+      disposed ||
+      epoch !== chapterEpoch ||
+      chapterId.value !== requestedId
+    ) {
+      return
+    }
     chapter.value = data
     ranges.value = data.ranges
   } catch (err) {
+    if (
+      disposed ||
+      epoch !== chapterEpoch ||
+      chapterId.value !== requestedId
+    ) {
+      return
+    }
     if (err instanceof ApiError && err.status === 403) {
       error.value = 'Debes apuntarte a este curso para ver los capítulos.'
     } else if (err instanceof ApiError && err.status === 404) {
@@ -244,7 +303,9 @@ async function loadChapter(): Promise<void> {
       error.value = 'No se pudo cargar el reproductor.'
     }
   } finally {
-    loading.value = false
+    if (epoch === chapterEpoch) {
+      loading.value = false
+    }
   }
 }
 
