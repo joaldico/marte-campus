@@ -11,7 +11,7 @@ export function setupSwagger(app: INestApplication): void {
   const config = new DocumentBuilder()
     .setTitle('Campus Marte')
     .setDescription(
-      'OpenAPI generated from Nest decorators (health, auth, catalog, player chapter, video stream, playback events and cursor).',
+      'OpenAPI generated from Nest decorators (health, auth, catalog, player chapter, video stream, playback events and cursor, admin course CRUD).',
     )
     .setVersion('1.0')
     .addServer('/api', 'nginx / Vite proxy')

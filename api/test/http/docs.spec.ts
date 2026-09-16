@@ -25,7 +25,7 @@ describe('Swagger /docs', () => {
     await app.close();
   });
 
-  it('GET /docs-json returns 200 OpenAPI for health, auth, catalog, player, videos and playback (no admin)', async () => {
+  it('GET /docs-json returns 200 OpenAPI for health, auth, catalog, player, videos, playback and admin CRUD', async () => {
     const response = await request(app.getHttpServer()).get('/docs-json');
 
     expect(response.status).toBe(200);
@@ -52,7 +52,22 @@ describe('Swagger /docs', () => {
     expect(response.body.paths['/playback/events'].post).toBeDefined();
     expect(response.body.paths['/playback/cursor']).toBeDefined();
     expect(response.body.paths['/playback/cursor'].patch).toBeDefined();
-    expect(response.body.paths['/admin/courses']).toBeUndefined();
+    expect(response.body.paths['/admin/courses']).toBeDefined();
+    expect(response.body.paths['/admin/courses'].get).toBeDefined();
+    expect(response.body.paths['/admin/courses'].post).toBeDefined();
+    expect(response.body.paths['/admin/courses/{id}']).toBeDefined();
+    expect(response.body.paths['/admin/courses/{id}'].get).toBeDefined();
+    expect(response.body.paths['/admin/courses/{id}'].patch).toBeDefined();
+    expect(response.body.paths['/admin/courses/{id}/chapters']).toBeDefined();
+    expect(response.body.paths['/admin/courses/{id}/chapters'].post).toBeDefined();
+    expect(response.body.paths['/admin/courses/{id}/chapters/order']).toBeDefined();
+    expect(response.body.paths['/admin/courses/{id}/chapters/order'].patch).toBeDefined();
+    expect(response.body.paths['/admin/courses/{id}/chapters/{cid}']).toBeDefined();
+    expect(response.body.paths['/admin/courses/{id}/chapters/{cid}'].patch).toBeDefined();
+    expect(response.body.paths['/admin/courses/{id}/chapters/{cid}'].delete).toBeDefined();
+    expect(response.body.paths['/admin/courses/{id}/transition']).toBeUndefined();
+    expect(response.body.paths['/admin/events/import']).toBeUndefined();
+    expect(response.body.paths['/admin/videos/{id}/heatmap']).toBeUndefined();
   });
 
   it('GET /docs returns 200 Swagger UI', async () => {

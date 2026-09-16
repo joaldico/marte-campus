@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AdminModule } from './admin/admin.module';
 import { AuthModule } from './auth/auth.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { HealthModule } from './health/health.module';
@@ -16,6 +17,7 @@ import { VideosModule } from './videos/videos.module';
     PlayerModule,
     PlaybackModule,
     VideosModule,
+    AdminModule,
   ],
 })
 export class AppModule {}
