@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { NAlert, NList, NListItem, NSpin, NText } from 'naive-ui'
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   flushPlaybackEventKeepalive,
@@ -38,6 +38,8 @@ let disposed = false
 let chapterEpoch = 0
 let nextPostSeq = 0
 let appliedPostSeq = 0
+let resumeAppliedEpoch = -1
+let ignoreResumeSeek = false
 
 function playbackRate(): number {
   const rate = videoEl.value?.playbackRate
@@ -165,6 +167,33 @@ function resetOpenInterval(): void {
   heardTime = null
   seekOrigin = null
   isSeeking = false
+  ignoreResumeSeek = false
+}
+
+function applyResumeCursor(): void {
+  const video = videoEl.value
+  const data = chapter.value
+  if (!video || !data || disposed) {
+    return
+  }
+  if (resumeAppliedEpoch === chapterEpoch) {
+    return
+  }
+  if (video.readyState < HTMLMediaElement.HAVE_METADATA) {
+    return
+  }
+  resumeAppliedEpoch = chapterEpoch
+  const cursor = data.cursor
+  if (typeof cursor !== 'number' || !Number.isFinite(cursor) || cursor < 0) {
+    return
+  }
+  if (video.currentTime === cursor) {
+    return
+  }
+  ignoreResumeSeek = true
+  isSeeking = true
+  seekOrigin = null
+  video.currentTime = cursor
 }
 
 function onTimeUpdate(): void {
@@ -206,12 +235,33 @@ function onEnded(): void {
 }
 
 function onSeeking(): void {
+  if (ignoreResumeSeek) {
+    isSeeking = true
+    seekOrigin = null
+    stopHeartbeat()
+    return
+  }
   isSeeking = true
   seekOrigin = heardTime
   stopHeartbeat()
 }
 
 function onSeeked(): void {
+  if (ignoreResumeSeek) {
+    ignoreResumeSeek = false
+    isSeeking = false
+    seekOrigin = null
+    const video = videoEl.value
+    heardTime = video?.currentTime ?? null
+    if (video && !video.paused && !video.ended) {
+      openFrom = video.currentTime
+      startHeartbeat()
+    } else {
+      openFrom = null
+      stopHeartbeat()
+    }
+    return
+  }
   const origin = seekOrigin
   const closed = takeSeekCloseInterval()
   isSeeking = false
@@ -236,6 +286,7 @@ function onLoadedMetadata(): void {
     typeof duration === 'number' && Number.isFinite(duration) && duration > 0
       ? duration
       : 0
+  applyResumeCursor()
 }
 
 function segmentStyle(range: PlayerRange): Record<string, string> {
@@ -270,6 +321,7 @@ async function loadChapter(): Promise<void> {
   const epoch = chapterEpoch
   nextPostSeq = 0
   appliedPostSeq = 0
+  resumeAppliedEpoch = -1
   resetOpenInterval()
   videoDuration.value = 0
   loading.value = true
@@ -287,6 +339,15 @@ async function loadChapter(): Promise<void> {
     }
     chapter.value = data
     ranges.value = data.ranges
+    await nextTick()
+    if (
+      disposed ||
+      epoch !== chapterEpoch ||
+      chapterId.value !== requestedId
+    ) {
+      return
+    }
+    applyResumeCursor()
   } catch (err) {
     if (
       disposed ||

@@ -172,6 +172,20 @@ export function seedIngestContext() {
   };
 }
 
+export type SeedPlaybackCursor = {
+  userId: string;
+  videoId: string;
+  positionSeconds: number;
+};
+
+/**
+ * Resume cursors after accepted seed events (position = to / union end).
+ * Carla playa [5,10)+[0,5)+[2,4) unions to [0,10); CA-04 starts at 10.
+ */
+export const SEED_PLAYBACK_CURSORS: readonly SeedPlaybackCursor[] = [
+  { userId: 'carla', videoId: 'playa', positionSeconds: 10 },
+];
+
 export function buildSeedPlaybackRecords(): SeedPlaybackRecord[] {
   const ctx = seedIngestContext();
   return SEED_PLAYBACK_CSV.map((row) => {
@@ -299,6 +313,20 @@ export async function seed(prisma: PrismaClient): Promise<void> {
         rejectReason: row.rejectReason,
       },
       create: row,
+    });
+  }
+
+  for (const cursor of SEED_PLAYBACK_CURSORS) {
+    await prisma.playbackCursor.upsert({
+      where: {
+        userId_videoId: { userId: cursor.userId, videoId: cursor.videoId },
+      },
+      update: { positionSeconds: cursor.positionSeconds },
+      create: {
+        userId: cursor.userId,
+        videoId: cursor.videoId,
+        positionSeconds: cursor.positionSeconds,
+      },
     });
   }
 }

@@ -1,5 +1,9 @@
-import { uniqueSeconds } from '../../src/domain/progress';
-import { VIDEO_DURATIONS, buildSeedPlaybackRecords } from '../../prisma/seed';
+import { merge, uniqueSeconds } from '../../src/domain/progress';
+import {
+  SEED_PLAYBACK_CURSORS,
+  VIDEO_DURATIONS,
+  buildSeedPlaybackRecords,
+} from '../../prisma/seed';
 
 function acceptedIntervals(userId: string, videoId: string) {
   return buildSeedPlaybackRecords()
@@ -49,5 +53,15 @@ describe('seed playback CSV via ingest + merge', () => {
       'largo',
     ]);
     expect(VIDEO_DURATIONS.some((video) => video.id === 'rio')).toBe(false);
+  });
+
+  it('seeds Carla playa PlaybackCursor at union end 10 so resume starts there', () => {
+    const union = merge(acceptedIntervals('carla', 'playa'));
+    expect(union).toEqual([{ from: 0, to: 10 }]);
+    const carlaPlaya = SEED_PLAYBACK_CURSORS.find(
+      (row) => row.userId === 'carla' && row.videoId === 'playa',
+    );
+    expect(carlaPlaya?.positionSeconds).toBe(10);
+    expect(carlaPlaya?.positionSeconds).toBe(union[0].to);
   });
 });
