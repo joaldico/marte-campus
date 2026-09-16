@@ -53,6 +53,7 @@ function seedPrisma() {
 describe('GET /videos/:id/stream', () => {
   let app: INestApplication;
   const previousProxy = process.env.VIDEO_PROXY;
+  const previousTimeout = process.env.VIDEO_ORIGIN_TIMEOUT_MS;
   const previousFetch = global.fetch;
 
   async function loginAs(userId: string): Promise<string> {
@@ -83,6 +84,11 @@ describe('GET /videos/:id/stream', () => {
       delete process.env.VIDEO_PROXY;
     } else {
       process.env.VIDEO_PROXY = previousProxy;
+    }
+    if (previousTimeout === undefined) {
+      delete process.env.VIDEO_ORIGIN_TIMEOUT_MS;
+    } else {
+      process.env.VIDEO_ORIGIN_TIMEOUT_MS = previousTimeout;
     }
     global.fetch = previousFetch;
   });
@@ -116,7 +122,6 @@ describe('GET /videos/:id/stream', () => {
       new Response(Buffer.from('ab'), {
         status: 206,
         headers: {
-          'Accept-Ranges': 'bytes',
           'Content-Range': 'bytes 0-1/1000',
           'Content-Type': 'video/mp4',
           'Content-Length': '2',
@@ -160,5 +165,108 @@ describe('GET /videos/:id/stream', () => {
     expect(response.status).toBe(302);
     expect(response.headers.location).toBe(playa?.url);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 502 VIDEO_ORIGIN_ERROR JSON when origin fetch fails before headers', async () => {
+    process.env.VIDEO_PROXY = 'true';
+    global.fetch = jest.fn().mockRejectedValue(new Error('ENOTFOUND')) as unknown as typeof fetch;
+
+    await boot();
+    const cookie = await loginAs('bruno');
+    const response = await request(app.getHttpServer())
+      .get('/videos/playa/stream')
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(502);
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        code: 'VIDEO_ORIGIN_ERROR',
+        message: expect.any(String),
+      }),
+    );
+  });
+
+  it('returns 502 VIDEO_ORIGIN_ERROR when origin fetch times out', async () => {
+    process.env.VIDEO_PROXY = 'true';
+    process.env.VIDEO_ORIGIN_TIMEOUT_MS = '40';
+    const fetchMock = jest.fn(
+      (_url: unknown, init?: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            const error = new Error('The operation was aborted');
+            error.name = 'AbortError';
+            reject(error);
+          });
+        }),
+    );
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await boot();
+    const cookie = await loginAs('bruno');
+    const response = await request(app.getHttpServer())
+      .get('/videos/playa/stream')
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(502);
+    expect(response.body.code).toBe('VIDEO_ORIGIN_ERROR');
+    expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+  });
+
+  it('aborts origin fetch when the client request closes', async () => {
+    process.env.VIDEO_PROXY = 'true';
+    const { EventEmitter } = await import('node:events');
+    const { VideosService } = await import('../../src/videos/videos.service');
+    const playa = VIDEO_DURATIONS.find((video) => video.id === 'playa');
+    if (!playa) {
+      throw new Error('missing playa seed video');
+    }
+
+    let signal: AbortSignal | undefined;
+    global.fetch = jest.fn(
+      (_url: unknown, init?: { signal?: AbortSignal }) => {
+        signal = init?.signal;
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            const error = new Error('The operation was aborted');
+            error.name = 'AbortError';
+            reject(error);
+          });
+        });
+      },
+    ) as unknown as typeof fetch;
+
+    const req = new EventEmitter();
+    Object.assign(req, { destroyed: false });
+    const res = {
+      headersSent: false,
+      writableEnded: false,
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn(),
+      setHeader: jest.fn(),
+      end: jest.fn(),
+      redirect: jest.fn(),
+      on: jest.fn(),
+      off: jest.fn(),
+    };
+
+    const service = new VideosService({
+      video: {
+        findUnique: jest.fn(async () => playa),
+      },
+    } as never);
+
+    const streaming = service.stream('playa', undefined, req as never, res as never);
+    const started = Date.now();
+    while (!signal && Date.now() - started < 2000) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(signal).toBeDefined();
+    expect(signal?.aborted).toBe(false);
+
+    req.emit('close');
+    await streaming;
+    expect(signal?.aborted).toBe(true);
+    expect(res.json).not.toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalled();
   });
 });

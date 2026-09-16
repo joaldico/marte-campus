@@ -35,6 +35,10 @@ export class VideosController {
   @ApiFoundResponse({ description: '302 to origin when VIDEO_PROXY is not true' })
   @ApiUnauthorizedResponse()
   @ApiNotFoundResponse({ description: 'VIDEO_NOT_FOUND' })
+  @ApiResponse({
+    status: 502,
+    description: 'VIDEO_ORIGIN_ERROR — origin fetch failed or timed out',
+  })
   stream(
     @Param('id') id: string,
     @Req() req: Request,
@@ -42,6 +46,6 @@ export class VideosController {
   ): Promise<void> {
     const range = req.headers.range;
     const rangeHeader = Array.isArray(range) ? range[0] : range;
-    return this.videos.stream(id, rangeHeader, res);
+    return this.videos.stream(id, rangeHeader, req, res);
   }
 }
