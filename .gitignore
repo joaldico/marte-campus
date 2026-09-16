@@ -27,5 +27,8 @@ Thumbs.db
 # git worktrees
 .worktrees/
 
+# notas personales (no van al evaluador)
+docs/
+
 # artifacts locales
 artifacts/tmp/

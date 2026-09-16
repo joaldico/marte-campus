@@ -1,6 +1,6 @@
 /**
  * Seed (T-3.2). durationSeconds measured 2026-09-16 from ISO BMFF mvhd.
- * Integer rule: Math.round(mvhd.duration / mvhd.timescale). See DECISIONS.md.
+ * Integer rule: Math.round(mvhd.duration / mvhd.timescale).
  *
  * Playback rows go through domain ingest() before insert. Rejected rows
  * (inverted_interval, unknown_video) are still persisted. No Video row for rio.
