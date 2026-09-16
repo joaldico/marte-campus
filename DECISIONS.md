@@ -87,6 +87,8 @@ DATABASE_URL="postgresql://campus:campus@127.0.0.1:5433/campus?schema=public" np
 
 That is `prisma db seed` (see `package.json` `prisma.seed`). Seed is idempotent (upserts by stable ids). DoD check printed at the end: `uniqueSecondsBrunoCascada` via query of accepted Bruno/`cascada` events + `uniqueSeconds`/`merge`. Jest `test/seed/seed-events.spec.ts` covers the same CSV through ingest+merge without Postgres.
 
+**Compose boot (T-3.3):** `api/docker-entrypoint.sh` runs `npx prisma db seed` after migrate and **exits non-zero** if seed fails. The API image installs `ts-node` + `typescript` and copies `src/` so `package.json` `prisma.seed` can load domain ingest at container start.
+
 ---
 
 ## Product decisions (spec 2.13)

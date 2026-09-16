@@ -22,11 +22,13 @@ RUN apk add --no-cache openssl libc6-compat \
 COPY package.json package-lock.json ./
 COPY prisma ./prisma
 RUN npm ci --omit=dev \
-  && npm install prisma@6.19.3 --omit=dev \
+  && npm install prisma@6.19.3 ts-node typescript --omit=dev \
   && npx prisma generate \
   && npm cache clean --force
 
 COPY --from=builder /app/dist ./dist
+COPY tsconfig.json ./
+COPY src ./src
 COPY docker-entrypoint.sh ./
 RUN chmod +x docker-entrypoint.sh \
   && chown -R nestjs:nestjs /app

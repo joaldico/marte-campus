@@ -18,4 +18,10 @@ else
   echo "No Prisma SQL migrations found; skipping migrate deploy."
 fi
 
+echo "Seeding database..."
+if ! npx prisma db seed; then
+  echo "ERROR: prisma db seed failed" >&2
+  exit 1
+fi
+
 exec node dist/main.js
