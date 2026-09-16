@@ -24,3 +24,47 @@ export function merge(intervals: Interval[]): Interval[] {
 export function uniqueSeconds(intervals: Interval[]): number {
   return merge(intervals).reduce((sum, interval) => sum + (interval.to - interval.from), 0);
 }
+
+export type ChapterProgressView = {
+  uniqueSeconds: number;
+  durationSeconds: number;
+  ratio: number;
+  completed: boolean;
+};
+
+export function chapterProgress(
+  uniqueSeconds: number,
+  durationSeconds: number | null | undefined,
+): ChapterProgressView {
+  if (durationSeconds == null || durationSeconds <= 0) {
+    return {
+      uniqueSeconds,
+      durationSeconds: durationSeconds ?? 0,
+      ratio: 0,
+      completed: false,
+    };
+  }
+
+  const ratio = Math.min(1, Math.max(0, uniqueSeconds / durationSeconds));
+  return {
+    uniqueSeconds,
+    durationSeconds,
+    ratio,
+    completed: ratio >= 0.9,
+  };
+}
+
+export function courseProgress(chapters: ChapterProgressView[]): {
+  averageRatio: number;
+  completedCount: number;
+  totalCount: number;
+} {
+  const totalCount = chapters.length;
+  const completedCount = chapters.filter((chapter) => chapter.completed).length;
+  const averageRatio =
+    totalCount === 0
+      ? 0
+      : chapters.reduce((sum, chapter) => sum + chapter.ratio, 0) / totalCount;
+
+  return { averageRatio, completedCount, totalCount };
+}
