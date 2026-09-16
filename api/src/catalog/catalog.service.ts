@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   chapterProgress,
@@ -96,5 +96,40 @@ export class CatalogService {
         progress: courseProgress(chapterViews),
       };
     });
+  }
+
+  async enroll(userId: string, courseId: string): Promise<{ enrolled: true }> {
+    const course = await this.prisma.course.findUnique({ where: { id: courseId } });
+    if (!course) {
+      throw new HttpException(
+        { code: 'COURSE_NOT_FOUND', message: 'Unknown course' },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    if (course.status === 'retired') {
+      throw new HttpException(
+        { code: 'COURSE_RETIRED', message: 'Course is retired' },
+        HttpStatus.CONFLICT,
+      );
+    }
+    if (course.status !== 'published') {
+      throw new HttpException(
+        { code: 'COURSE_NOT_PUBLISHED', message: 'Course is not published' },
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    const existing = await this.prisma.enrollment.findUnique({
+      where: { userId_courseId: { userId, courseId } },
+    });
+    if (existing) {
+      throw new HttpException(
+        { code: 'ALREADY_ENROLLED', message: 'Already enrolled' },
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    await this.prisma.enrollment.create({ data: { userId, courseId } });
+    return { enrolled: true };
   }
 }

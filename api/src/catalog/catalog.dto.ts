@@ -24,3 +24,8 @@ export class CatalogCourseDto {
   @ApiPropertyOptional({ type: CatalogCourseProgressDto, nullable: true })
   progress!: CatalogCourseProgressDto | null;
 }
+
+export class EnrollResponseDto {
+  @ApiProperty({ example: true })
+  enrolled!: true;
+}
