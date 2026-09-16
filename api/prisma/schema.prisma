@@ -6,3 +6,118 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
+
+enum Role {
+  admin
+  student
+}
+
+enum CourseStatus {
+  draft
+  in_review
+  published
+  retired
+}
+
+enum RevisionStatus {
+  draft
+  in_review
+  published
+}
+
+model User {
+  id              String           @id
+  name            String
+  role            Role
+  sessions        Session[]
+  enrollments     Enrollment[]
+  playbackEvents  PlaybackEvent[]
+  playbackCursors PlaybackCursor[]
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  expiresAt DateTime
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Course {
+  id                 String          @id @default(uuid())
+  title              String
+  status             CourseStatus
+  publishedVersionId String?
+  workingVersionId   String?
+  publishedVersion   CourseVersion?  @relation("PublishedVersion", fields: [publishedVersionId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  workingVersion     CourseVersion?  @relation("WorkingVersion", fields: [workingVersionId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  versions           CourseVersion[] @relation("CourseVersions")
+  enrollments        Enrollment[]
+}
+
+model CourseVersion {
+  id             String         @id @default(uuid())
+  courseId       String
+  revisionStatus RevisionStatus
+  versionNumber  Int
+  course         Course         @relation("CourseVersions", fields: [courseId], references: [id], onDelete: Cascade)
+  chapters       Chapter[]
+  publishedFor   Course[]       @relation("PublishedVersion")
+  workingFor     Course[]       @relation("WorkingVersion")
+}
+
+model Video {
+  id              String           @id
+  url             String
+  durationSeconds Float?
+  chapters        Chapter[]
+  playbackEvents  PlaybackEvent[]
+  playbackCursors PlaybackCursor[]
+}
+
+model Chapter {
+  id        String        @id @default(uuid())
+  versionId String
+  videoId   String
+  title     String
+  position  Int
+  version   CourseVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  video     Video         @relation(fields: [videoId], references: [id])
+
+  @@unique([versionId, position])
+}
+
+model Enrollment {
+  id        String   @id @default(uuid())
+  userId    String
+  courseId  String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courseId])
+}
+
+model PlaybackEvent {
+  id           String   @id @default(uuid())
+  userId       String
+  videoId      String
+  fromS        Float
+  toS          Float
+  rate         Float
+  at           DateTime
+  accepted     Boolean
+  rejectReason String?
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  video        Video    @relation(fields: [videoId], references: [id])
+}
+
+model PlaybackCursor {
+  userId          String
+  videoId         String
+  positionSeconds Float
+  updatedAt       DateTime @updatedAt
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  video           Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@id([userId, videoId])
+}
