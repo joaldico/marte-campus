@@ -74,6 +74,21 @@ Note: spec 2.2.4 Carla `bosque` 0–25 is longer than the measured 20.098 s file
 
 ---
 
+## Seed catalog (T-3.2)
+
+**Verdict:** `api/prisma/seed.ts` upserts users, VIDEO_DURATIONS, three Paisajes courses, Bruno/Carla → Paisajes I, and spec 2.2.4 playback rows. Each playback row is classified by domain `ingest()`; `accepted=false` rows (Carla `cascada` inverted, Carla `rio` unknown_video) are still inserted. `PlaybackEvent.videoId` has no FK, so `rio` persists without a Video row.
+
+**Run against compose db** (host 5432 may already be taken; this machine maps compose Postgres to **5433**):
+
+```
+cd api
+DATABASE_URL="postgresql://campus:campus@127.0.0.1:5433/campus?schema=public" npm run seed
+```
+
+That is `prisma db seed` (see `package.json` `prisma.seed`). Seed is idempotent (upserts by stable ids). DoD check printed at the end: `uniqueSecondsBrunoCascada` via query of accepted Bruno/`cascada` events + `uniqueSeconds`/`merge`. Jest `test/seed/seed-events.spec.ts` covers the same CSV through ingest+merge without Postgres.
+
+---
+
 ## Product decisions (spec 2.13)
 
 Short form only; no extra product choices.
