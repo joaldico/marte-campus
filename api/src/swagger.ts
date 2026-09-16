@@ -10,7 +10,9 @@ import { SESSION_COOKIE } from './auth/session-cookie';
 export function setupSwagger(app: INestApplication): void {
   const config = new DocumentBuilder()
     .setTitle('Campus Marte')
-    .setDescription('OpenAPI generated from Nest decorators (existing routes only).')
+    .setDescription(
+      'OpenAPI generated from Nest decorators (health, auth, catalog list).',
+    )
     .setVersion('1.0')
     .addServer('/api', 'nginx / Vite proxy')
     .addServer('/', 'Nest listen :3000')
