@@ -66,17 +66,22 @@ watch(courseId, () => {
         <n-text tag="h1" class="title">{{ course.title }}</n-text>
         <n-list v-if="course.chapters.length" bordered>
           <n-list-item v-for="chapter in course.chapters" :key="chapter.id">
-            <n-thing :title="chapter.title">
-              <template #header-extra>
-                <n-tag
-                  v-if="chapter.chapterProgress.completed"
-                  type="success"
-                  size="small"
-                >
-                  Visto
-                </n-tag>
-              </template>
-            </n-thing>
+            <router-link
+              :to="{ name: 'player', params: { chapterId: chapter.id } }"
+              class="chapter-link"
+            >
+              <n-thing :title="chapter.title">
+                <template #header-extra>
+                  <n-tag
+                    v-if="chapter.chapterProgress.completed"
+                    type="success"
+                    size="small"
+                  >
+                    Visto
+                  </n-tag>
+                </template>
+              </n-thing>
+            </router-link>
           </n-list-item>
         </n-list>
         <n-text v-else depth="3">Este curso no tiene capítulos.</n-text>
@@ -105,5 +110,11 @@ watch(courseId, () => {
 
 .alert {
   margin-bottom: 16px;
+}
+
+.chapter-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
 }
 </style>

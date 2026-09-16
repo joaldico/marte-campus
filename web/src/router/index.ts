@@ -3,6 +3,7 @@ import { ensureSession } from '../auth/session'
 import CatalogPage from '../pages/CatalogPage.vue'
 import CoursePage from '../pages/CoursePage.vue'
 import LoginPage from '../pages/LoginPage.vue'
+import PlayerPage from '../pages/PlayerPage.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -22,6 +23,12 @@ const router = createRouter({
       path: '/catalogo/:id',
       name: 'course',
       component: CoursePage,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/reproductor/:chapterId',
+      name: 'player',
+      component: PlayerPage,
       meta: { requiresAuth: true },
     },
   ],
