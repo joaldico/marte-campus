@@ -146,3 +146,22 @@ export class ImportEventsResponseDto {
   @ApiProperty({ type: [ImportRejectCountDto] })
   rejected!: ImportRejectCountDto[];
 }
+
+export class HeatmapBucketDto {
+  @ApiProperty({ example: 7 })
+  t!: number;
+
+  @ApiProperty({ example: 0 })
+  watchedWeight!: number;
+
+  @ApiProperty({ example: 1 })
+  skipWeight!: number;
+}
+
+export class VideoHeatmapDto {
+  @ApiProperty({ example: 11 })
+  durationSeconds!: number;
+
+  @ApiProperty({ type: [HeatmapBucketDto] })
+  buckets!: HeatmapBucketDto[];
+}

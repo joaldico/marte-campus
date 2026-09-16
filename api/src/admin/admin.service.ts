@@ -1,6 +1,7 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { CourseStatus as PrismaCourseStatus, Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
+import { build as buildHeatmap } from '../domain/heatmap';
 import { ingest, type RejectReason } from '../domain/ingest';
 import {
   assertCanTransition,
@@ -291,6 +292,32 @@ export class AdminService {
       data: { revisionStatus: 'in_review' },
     });
     return this.prisma.course.findUnique({ where: { id: courseId } });
+  }
+
+  async getVideoHeatmap(videoId: string): Promise<{
+    durationSeconds: number;
+    buckets: { t: number; watchedWeight: number; skipWeight: number }[];
+  }> {
+    const video = await this.prisma.video.findUnique({ where: { id: videoId } });
+    if (!video) {
+      throw new HttpException(
+        { code: 'VIDEO_NOT_FOUND', message: 'Unknown video' },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const events = await this.prisma.playbackEvent.findMany({
+      where: { videoId, accepted: true },
+    });
+    const durationSeconds = video.durationSeconds ?? 0;
+    return {
+      durationSeconds,
+      buckets: buildHeatmap(
+        events.map((event) => ({ from: event.fromS, to: event.toS })),
+        durationSeconds,
+        1,
+      ),
+    };
   }
 
   async importEvents(csv: string): Promise<{

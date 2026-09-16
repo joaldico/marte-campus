@@ -47,6 +47,7 @@ import {
   PatchAdminCourseDto,
   ReorderAdminChaptersDto,
   TransitionAdminCourseDto,
+  VideoHeatmapDto,
 } from './admin.dto';
 import { AdminService } from './admin.service';
 
@@ -236,6 +237,18 @@ export class AdminController {
   ) {
     const csv = csvText(file);
     return this.admin.importEvents(csv);
+  }
+
+  @Get('videos/:id/heatmap')
+  @ApiOperation({
+    summary:
+      '1s heatmap buckets from accepted events; durationSeconds from Video',
+  })
+  @ApiParam({ name: 'id', example: 'cascada' })
+  @ApiOkResponse({ type: VideoHeatmapDto })
+  @ApiNotFoundResponse({ description: 'VIDEO_NOT_FOUND' })
+  heatmap(@Param('id') id: string) {
+    return this.admin.getVideoHeatmap(id);
   }
 }
 
