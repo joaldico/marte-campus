@@ -14,6 +14,7 @@ RUN npm run build
 FROM node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
+ENV PATH="/app/node_modules/.bin:${PATH}"
 
 RUN apk add --no-cache openssl libc6-compat \
   && addgroup -S nestjs \
@@ -22,7 +23,7 @@ RUN apk add --no-cache openssl libc6-compat \
 COPY package.json package-lock.json ./
 COPY prisma ./prisma
 RUN npm ci --omit=dev \
-  && npm install prisma@6.19.3 ts-node typescript --omit=dev \
+  && npm install prisma@6.19.3 ts-node typescript \
   && npx prisma generate \
   && npm cache clean --force
 
