@@ -1,0 +1,49 @@
+# Production on the same EC2 as josue-diaz-web.
+# Host ports: web 3003, api 4003. Postgres is not published.
+# proxy-reverse: beonittest.josuediazcontreras.com → 127.0.0.1:3003
+# (web nginx still proxies /api to the api service on the compose network).
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: campus
+      POSTGRES_PASSWORD: campus
+      POSTGRES_DB: campus
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U campus -d campus"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  api:
+    image: ghcr.io/joaldico/marte-campus-api:latest
+    build:
+      context: ./api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://campus:campus@db:5432/campus?schema=public
+      PORT: "3000"
+      VIDEO_PROXY: "true"
+    ports:
+      - "4003:3000"
+
+  web:
+    image: ghcr.io/joaldico/marte-campus-web:latest
+    build:
+      context: ./web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "3003:80"
+
+volumes:
+  postgres_data:

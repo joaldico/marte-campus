@@ -4,6 +4,8 @@ Prueba técnica Full Stack (Vue 3 · NestJS 10 · PostgreSQL 16 · TypeScript). 
 
 Repositorio: [github.com/joaldico/marte-campus](https://github.com/joaldico/marte-campus)
 
+Demo: https://beonittest.josuediazcontreras.com
+
 ## Arranque (máquina limpia)
 
 ```bash

@@ -1,0 +1,34 @@
+name: Deploy marte-campus
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, Linux, X64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        run: |
+          API=ghcr.io/${{ github.repository }}-api:latest
+          WEB=ghcr.io/${{ github.repository }}-web:latest
+          docker build -t "$API" ./api
+          docker build -t "$WEB" ./web
+          docker push "$API"
+          docker push "$WEB"
+
+      - name: Up
+        run: docker compose -f docker-compose.prod.yml up -d --force-recreate --build
