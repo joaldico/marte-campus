@@ -1,11 +1,16 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
 import { NConfigProvider, NLayout, NLayoutContent, NLayoutHeader } from 'naive-ui'
+
+const route = useRoute()
+const showHeader = computed(() => Boolean(route.meta.requiresAuth))
 </script>
 
 <template>
   <n-config-provider>
     <n-layout>
-      <n-layout-header bordered class="header">
+      <n-layout-header v-if="showHeader" bordered class="header">
         <img src="/logo.png" alt="Campus Marte" class="logo" />
       </n-layout-header>
       <n-layout-content class="content">
