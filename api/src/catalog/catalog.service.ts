@@ -5,6 +5,8 @@ import {
   courseProgress,
   merge,
   uniqueSeconds,
+  type ChapterProgressView,
+  type Interval,
 } from '../domain/progress';
 
 export type CatalogCourseProgress = {
@@ -18,6 +20,21 @@ export type CatalogCourseItem = {
   title: string;
   enrolled: boolean;
   progress: CatalogCourseProgress | null;
+};
+
+export type CatalogCourseDetailChapter = {
+  id: string;
+  videoId: string;
+  title: string;
+  position: number;
+  ranges: Interval[];
+  chapterProgress: ChapterProgressView;
+};
+
+export type CatalogCourseDetail = {
+  id: string;
+  title: string;
+  chapters: CatalogCourseDetailChapter[];
 };
 
 @Injectable()
@@ -76,17 +93,7 @@ export class CatalogService {
       }
 
       const chapterViews = (course.publishedVersion?.chapters ?? []).map(
-        (chapter) => {
-          const intervals = merge(
-            events
-              .filter((event) => event.videoId === chapter.videoId)
-              .map((event) => ({ from: event.fromS, to: event.toS })),
-          );
-          return chapterProgress(
-            uniqueSeconds(intervals),
-            chapter.video?.durationSeconds,
-          );
-        },
+        (chapter) => this.watchedFromEvents(events, chapter).chapterProgress,
       );
 
       return {
@@ -131,5 +138,87 @@ export class CatalogService {
 
     await this.prisma.enrollment.create({ data: { userId, courseId } });
     return { enrolled: true };
+  }
+
+  async getPublishedById(
+    userId: string,
+    courseId: string,
+  ): Promise<CatalogCourseDetail> {
+    const course = await this.prisma.course.findUnique({
+      where: { id: courseId },
+      include: {
+        publishedVersion: {
+          include: {
+            chapters: {
+              orderBy: { position: 'asc' },
+              include: { video: true },
+            },
+          },
+        },
+        enrollments: { where: { userId } },
+      },
+    });
+
+    if (!course || course.status !== 'published' || !course.publishedVersion) {
+      throw new HttpException(
+        { code: 'COURSE_NOT_FOUND', message: 'Unknown course' },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    if (course.enrollments.length === 0) {
+      throw new HttpException(
+        { code: 'NOT_ENROLLED', message: 'Not enrolled in this course' },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    const videoIds = course.publishedVersion.chapters.map(
+      (chapter) => chapter.videoId,
+    );
+    const events =
+      videoIds.length === 0
+        ? []
+        : await this.prisma.playbackEvent.findMany({
+            where: {
+              userId,
+              accepted: true,
+              videoId: { in: videoIds },
+            },
+          });
+
+    return {
+      id: course.id,
+      title: course.title,
+      chapters: course.publishedVersion.chapters.map((chapter) => {
+        const watched = this.watchedFromEvents(events, chapter);
+        return {
+          id: chapter.id,
+          videoId: chapter.videoId,
+          title: chapter.title,
+          position: chapter.position,
+          ranges: watched.ranges,
+          chapterProgress: watched.chapterProgress,
+        };
+      }),
+    };
+  }
+
+  private watchedFromEvents(
+    events: { videoId: string; fromS: number; toS: number }[],
+    chapter: { videoId: string; video?: { durationSeconds: number | null } | null },
+  ): { ranges: Interval[]; chapterProgress: ChapterProgressView } {
+    const ranges = merge(
+      events
+        .filter((event) => event.videoId === chapter.videoId)
+        .map((event) => ({ from: event.fromS, to: event.toS })),
+    );
+    return {
+      ranges,
+      chapterProgress: chapterProgress(
+        uniqueSeconds(ranges),
+        chapter.video?.durationSeconds,
+      ),
+    };
   }
 }

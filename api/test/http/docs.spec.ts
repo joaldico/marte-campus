@@ -25,7 +25,7 @@ describe('Swagger /docs', () => {
     await app.close();
   });
 
-  it('GET /docs-json returns 200 OpenAPI for health, auth, catalog list and enroll (no course detail/admin)', async () => {
+  it('GET /docs-json returns 200 OpenAPI for health, auth, catalog list, enroll and course detail (no admin)', async () => {
     const response = await request(app.getHttpServer()).get('/docs-json');
 
     expect(response.status).toBe(200);
@@ -38,7 +38,9 @@ describe('Swagger /docs', () => {
     expect(response.body.paths['/catalog/courses']).toBeDefined();
     expect(response.body.paths['/catalog/courses'].get).toBeDefined();
     expect(response.body.paths['/catalog/courses'].post).toBeUndefined();
-    expect(response.body.paths['/catalog/courses/{id}']).toBeUndefined();
+    expect(response.body.paths['/catalog/courses/{id}']).toBeDefined();
+    expect(response.body.paths['/catalog/courses/{id}'].get).toBeDefined();
+    expect(response.body.paths['/catalog/courses/{id}'].post).toBeUndefined();
     expect(response.body.paths['/catalog/courses/{id}/enroll']).toBeDefined();
     expect(response.body.paths['/catalog/courses/{id}/enroll'].post).toBeDefined();
     expect(response.body.paths['/admin/courses']).toBeUndefined();

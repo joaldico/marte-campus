@@ -11,6 +11,7 @@ import {
   ApiConflictResponse,
   ApiCookieAuth,
   ApiCreatedResponse,
+  ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
@@ -22,7 +23,11 @@ import { AuthedUser } from '../auth/auth.service';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { SessionAuthGuard } from '../auth/session.guard';
 import { SESSION_COOKIE } from '../auth/session-cookie';
-import { CatalogCourseDto, EnrollResponseDto } from './catalog.dto';
+import {
+  CatalogCourseDetailDto,
+  CatalogCourseDto,
+  EnrollResponseDto,
+} from './catalog.dto';
 import { CatalogService } from './catalog.service';
 
 @ApiTags('catalog')
@@ -40,6 +45,24 @@ export class CatalogController {
   @ApiUnauthorizedResponse()
   list(@CurrentUser() user: AuthedUser) {
     return this.catalog.listPublished(user.id);
+  }
+
+  @Get('courses/:id')
+  @UseGuards(SessionAuthGuard)
+  @ApiCookieAuth(SESSION_COOKIE)
+  @ApiOperation({
+    summary:
+      'Published version chapters with per-chapter progress and watched ranges',
+  })
+  @ApiParam({ name: 'id', example: 'paisajes-i' })
+  @ApiOkResponse({ type: CatalogCourseDetailDto })
+  @ApiUnauthorizedResponse()
+  @ApiForbiddenResponse({ description: 'NOT_ENROLLED' })
+  @ApiNotFoundResponse({
+    description: 'Unknown or not published (COURSE_NOT_FOUND)',
+  })
+  getById(@Param('id') id: string, @CurrentUser() user: AuthedUser) {
+    return this.catalog.getPublishedById(user.id, id);
   }
 
   @Post('courses/:id/enroll')

@@ -26,6 +26,40 @@ function cookieHeader(setCookie: string | string[] | undefined): string {
   return parts.map((c) => c.split(';')[0]).join('; ');
 }
 
+function expectedPublishedChapters(userId: string) {
+  const course = SEED_COURSES.find((row) => row.status === 'published');
+  if (!course) {
+    throw new Error('seed has no published course');
+  }
+  const events = buildSeedPlaybackRecords();
+  return course.version.chapters.map((chapter) => {
+    const intervals = merge(
+      events
+        .filter(
+          (row) =>
+            row.accepted &&
+            row.userId === userId &&
+            row.videoId === chapter.videoId,
+        )
+        .map((row) => ({ from: row.fromS, to: row.toS })),
+    );
+    const duration = VIDEO_DURATIONS.find((video) => video.id === chapter.videoId)
+      ?.durationSeconds;
+    const progress = chapterProgress(uniqueSeconds(intervals), duration);
+    return {
+      id: chapter.id,
+      videoId: chapter.videoId,
+      title: chapter.title,
+      position: chapter.position,
+      ranges: intervals,
+      chapterProgress: {
+        ratio: progress.ratio,
+        completed: progress.completed,
+      },
+    };
+  });
+}
+
 function expectedPublishedProgress(userId: string) {
   const course = SEED_COURSES.find((row) => row.status === 'published');
   if (!course) {
@@ -76,7 +110,8 @@ function seedPrisma() {
       status: course.status,
       publishedVersionId: course.status === 'published' ? course.version.id : null,
       workingVersionId: course.version.id,
-      publishedVersion: versionPayload(course),
+      publishedVersion:
+        course.status === 'published' ? versionPayload(course) : null,
     })),
     {
       id: 'paisajes-retired',
@@ -144,9 +179,45 @@ function seedPrisma() {
         }
         return rows;
       }),
-      findUnique: jest.fn(async ({ where: { id } }: { where: { id: string } }) => {
-        return courses.find((course) => course.id === id) ?? null;
-      }),
+      findUnique: jest.fn(
+        async (args: {
+          where: { id: string };
+          include?: {
+            publishedVersion?: unknown;
+            enrollments?: { where?: { userId?: string } };
+          };
+        }) => {
+          const course = courses.find((row) => row.id === args.where.id);
+          if (!course) {
+            return null;
+          }
+          const enrollmentUserId = args.include?.enrollments?.where?.userId;
+          const courseEnrollments = enrollments.filter((row) => {
+            if (row.courseId !== course.id) {
+              return false;
+            }
+            if (enrollmentUserId && row.userId !== enrollmentUserId) {
+              return false;
+            }
+            return true;
+          });
+          const publishedVersion = course.publishedVersion
+            ? {
+                ...course.publishedVersion,
+                chapters: [...course.publishedVersion.chapters].sort(
+                  (a, b) => a.position - b.position,
+                ),
+              }
+            : null;
+          return {
+            ...course,
+            publishedVersion: args.include?.publishedVersion
+              ? publishedVersion
+              : course.publishedVersion,
+            enrollments: args.include?.enrollments ? courseEnrollments : undefined,
+          };
+        },
+      ),
     },
     enrollment: {
       findMany: jest.fn(async (args: { where?: { userId?: string; courseId?: string } } = {}) => {
@@ -409,5 +480,114 @@ describe('POST /catalog/courses/:id/enroll', () => {
     expect(course.progress.completedCount).toBe(expected.completedCount);
     expect(course.progress.totalCount).toBe(expected.totalCount);
     expect(course.progress.averageRatio).toBeCloseTo(expected.averageRatio);
+  });
+});
+
+describe('GET /catalog/courses/:id', () => {
+  let app: INestApplication;
+
+  beforeEach(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    })
+      .overrideProvider(PrismaService)
+      .useValue(seedPrisma())
+      .compile();
+
+    app = moduleFixture.createNestApplication();
+    await app.init();
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  async function loginAs(userId: string): Promise<string> {
+    const login = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ userId });
+    expect(login.status).toBe(200);
+    return cookieHeader(login.headers['set-cookie']);
+  }
+
+  it('returns 401 without a session cookie', async () => {
+    const response = await request(app.getHttpServer()).get(
+      '/catalog/courses/paisajes-i',
+    );
+    expect(response.status).toBe(401);
+  });
+
+  it('returns 404 when the course id is unknown', async () => {
+    const cookie = await loginAs('bruno');
+    const response = await request(app.getHttpServer())
+      .get('/catalog/courses/does-not-exist')
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(404);
+    expect(response.body.code).toBe('COURSE_NOT_FOUND');
+  });
+
+  it('returns 404 for unpublished Paisajes II so students cannot leak it', async () => {
+    const cookie = await loginAs('bruno');
+    const response = await request(app.getHttpServer())
+      .get('/catalog/courses/paisajes-ii')
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(404);
+    expect(response.body.code).toBe('COURSE_NOT_FOUND');
+  });
+
+  it('returns 404 for unpublished Paisajes III so students cannot leak it', async () => {
+    const cookie = await loginAs('bruno');
+    const response = await request(app.getHttpServer())
+      .get('/catalog/courses/paisajes-iii')
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(404);
+    expect(response.body.code).toBe('COURSE_NOT_FOUND');
+  });
+
+  it('returns 403 NOT_ENROLLED when Diego is not enrolled in published Paisajes I', async () => {
+    const cookie = await loginAs('diego');
+    const response = await request(app.getHttpServer())
+      .get('/catalog/courses/paisajes-i')
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(403);
+    expect(response.body.code).toBe('NOT_ENROLLED');
+  });
+
+  it('Bruno sees Paisajes I published chapters in order with merge ranges and chapterProgress', async () => {
+    const expected = expectedPublishedChapters('bruno');
+    const cookie = await loginAs('bruno');
+    const response = await request(app.getHttpServer())
+      .get('/catalog/courses/paisajes-i')
+      .set('Cookie', cookie);
+
+    expect(response.status).toBe(200);
+    expect(response.body.id).toBe('paisajes-i');
+    expect(response.body.title).toBe('Paisajes I');
+    const videoIds = response.body.chapters.map(
+      (chapter: { videoId: string }) => chapter.videoId,
+    );
+    expect(videoIds).toEqual(['playa', 'cascada', 'bosque']);
+    expect(videoIds).not.toContain('atardecer');
+    expect(response.body.chapters.map((chapter: { title: string }) => chapter.title)).toEqual([
+      'Playa',
+      'Cascada',
+      'Bosque',
+    ]);
+    expect(
+      response.body.chapters.map((chapter: { position: number }) => chapter.position),
+    ).toEqual([1, 2, 3]);
+
+    for (let i = 0; i < expected.length; i++) {
+      const chapter = response.body.chapters[i];
+      expect(chapter.id).toBe(expected[i].id);
+      expect(chapter.videoId).toBe(expected[i].videoId);
+      expect(chapter.ranges).toEqual(expected[i].ranges);
+      expect(chapter.chapterProgress.ratio).toBeCloseTo(expected[i].chapterProgress.ratio);
+      expect(chapter.chapterProgress.completed).toBe(expected[i].chapterProgress.completed);
+    }
   });
 });
