@@ -1,0 +1,14 @@
+userId,videoId,from,to,rate
+bruno,playa,0,10,1
+bruno,cascada,0,4,1
+bruno,cascada,3,7,1
+bruno,cascada,8,11,1
+bruno,cascada,0,4,1
+bruno,atardecer,0,27,1
+carla,playa,5,10,2
+carla,playa,0,5,2
+carla,playa,2,4,1
+carla,cascada,8,2,1
+carla,bosque,0,25,1
+carla,rio,0,10,1
+diego,playa,0,10,1

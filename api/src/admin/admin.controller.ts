@@ -4,16 +4,21 @@ import {
   Delete,
   Get,
   HttpCode,
+  HttpException,
   HttpStatus,
   Param,
   Patch,
   Post,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiBadRequestResponse,
   ApiBody,
   ApiConflictResponse,
+  ApiConsumes,
   ApiCookieAuth,
   ApiCreatedResponse,
   ApiForbiddenResponse,
@@ -25,6 +30,7 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import { readFileSync } from 'fs';
 import { AdminRoleGuard } from '../auth/admin.guard';
 import { SessionAuthGuard } from '../auth/session.guard';
 import { SESSION_COOKIE } from '../auth/session-cookie';
@@ -35,6 +41,8 @@ import {
   AdminCourseListItemDto,
   CreateAdminChapterDto,
   CreateAdminCourseDto,
+  ImportEventsFileDto,
+  ImportEventsResponseDto,
   PatchAdminChapterDto,
   PatchAdminCourseDto,
   ReorderAdminChaptersDto,
@@ -210,4 +218,36 @@ export class AdminController {
   publishRevision(@Param('id') id: string) {
     return this.admin.publishRevision(id);
   }
+
+  @Post('events/import')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary:
+      'Import spec 3.1 playback CSV (userId from file); persist every row via ingest(); do not abort on reject',
+  })
+  @ApiBody({ type: ImportEventsFileDto })
+  @ApiOkResponse({ type: ImportEventsResponseDto })
+  @ApiBadRequestResponse({ description: 'CSV_REQUIRED' })
+  importEvents(
+    @UploadedFile()
+    file?: { buffer?: Buffer; path?: string },
+  ) {
+    const csv = csvText(file);
+    return this.admin.importEvents(csv);
+  }
+}
+
+function csvText(file?: { buffer?: Buffer; path?: string }): string {
+  if (file?.buffer && file.buffer.length > 0) {
+    return file.buffer.toString('utf8');
+  }
+  if (file?.path) {
+    return readFileSync(file.path, 'utf8');
+  }
+  throw new HttpException(
+    { code: 'CSV_REQUIRED', message: 'CSV file required' },
+    HttpStatus.BAD_REQUEST,
+  );
 }

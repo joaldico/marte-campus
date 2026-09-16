@@ -71,7 +71,8 @@ describe('Swagger /docs', () => {
     expect(response.body.paths['/admin/courses/{id}/revisions/submit'].post).toBeDefined();
     expect(response.body.paths['/admin/courses/{id}/revisions/publish']).toBeDefined();
     expect(response.body.paths['/admin/courses/{id}/revisions/publish'].post).toBeDefined();
-    expect(response.body.paths['/admin/events/import']).toBeUndefined();
+    expect(response.body.paths['/admin/events/import']).toBeDefined();
+    expect(response.body.paths['/admin/events/import'].post).toBeDefined();
     expect(response.body.paths['/admin/videos/{id}/heatmap']).toBeUndefined();
   });
 

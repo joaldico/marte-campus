@@ -121,3 +121,28 @@ export class AdminCourseDetailDto extends AdminCourseDto {
   })
   chapters!: AdminChapterDto[];
 }
+
+export class ImportEventsFileDto {
+  @ApiProperty({
+    type: 'string',
+    format: 'binary',
+    description: 'CSV 3.1: userId,videoId,from,to,rate[,at]',
+  })
+  file!: string;
+}
+
+export class ImportRejectCountDto {
+  @ApiProperty({ example: 'inverted_interval' })
+  reason!: string;
+
+  @ApiProperty({ example: 1 })
+  count!: number;
+}
+
+export class ImportEventsResponseDto {
+  @ApiProperty({ example: 11 })
+  accepted!: number;
+
+  @ApiProperty({ type: [ImportRejectCountDto] })
+  rejected!: ImportRejectCountDto[];
+}

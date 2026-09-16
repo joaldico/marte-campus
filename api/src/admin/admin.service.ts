@@ -1,6 +1,7 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { CourseStatus as PrismaCourseStatus, Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
+import { ingest, type RejectReason } from '../domain/ingest';
 import {
   assertCanTransition,
   StateMachineError,
@@ -290,6 +291,67 @@ export class AdminService {
       data: { revisionStatus: 'in_review' },
     });
     return this.prisma.course.findUnique({ where: { id: courseId } });
+  }
+
+  async importEvents(csv: string): Promise<{
+    accepted: number;
+    rejected: { reason: RejectReason; count: number }[];
+  }> {
+    const rows = parsePlaybackCsv(csv);
+    const [users, videos] = await Promise.all([
+      this.prisma.user.findMany({ select: { id: true } }),
+      this.prisma.video.findMany({ select: { id: true } }),
+    ]);
+    const ctx = {
+      userIds: new Set(users.map((user) => user.id)),
+      videoIds: new Set(videos.map((video) => video.id)),
+    };
+
+    let accepted = 0;
+    const rejectedCounts = new Map<RejectReason, number>();
+
+    for (const row of rows) {
+      const result = ingest(
+        {
+          userId: row.userId,
+          videoId: row.videoId,
+          from: row.from,
+          to: row.to,
+          rate: row.rate,
+          at: row.at,
+        },
+        ctx,
+      );
+      if (result.accepted) {
+        accepted += 1;
+      } else {
+        rejectedCounts.set(
+          result.reason,
+          (rejectedCounts.get(result.reason) ?? 0) + 1,
+        );
+      }
+
+      await this.prisma.playbackEvent.create({
+        data: {
+          userId: row.userId,
+          videoId: row.videoId,
+          fromS: finiteOrZero(row.from),
+          toS: finiteOrZero(row.to),
+          rate: finiteOrZero(row.rate),
+          at: finiteDateOrNow(row.at),
+          accepted: result.accepted,
+          rejectReason: result.accepted ? null : result.reason,
+        },
+      });
+    }
+
+    return {
+      accepted,
+      rejected: [...rejectedCounts.entries()].map(([reason, count]) => ({
+        reason,
+        count,
+      })),
+    };
   }
 
   async publishRevision(courseId: string) {
@@ -604,6 +666,60 @@ function stateMachineMessage(code: StateMachineErrorCode): string {
     return 'Working version has no chapters';
   }
   return 'Illegal course status transition';
+}
+
+type CsvPlaybackRow = {
+  userId: string;
+  videoId: string;
+  from: number;
+  to: number;
+  rate: number;
+  at: Date;
+};
+
+function parsePlaybackCsv(text: string): CsvPlaybackRow[] {
+  const normalized = text
+    .replace(/^\uFEFF/, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
+  const lines = normalized
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length === 0) {
+    return [];
+  }
+
+  const header = lines[0].split(',').map((cell) => cell.trim());
+  const idx = {
+    userId: header.indexOf('userId'),
+    videoId: header.indexOf('videoId'),
+    from: header.indexOf('from'),
+    to: header.indexOf('to'),
+    rate: header.indexOf('rate'),
+    at: header.indexOf('at'),
+  };
+
+  return lines.slice(1).map((line) => {
+    const cols = line.split(',').map((cell) => cell.trim());
+    const atRaw = idx.at >= 0 ? cols[idx.at] : undefined;
+    return {
+      userId: cols[idx.userId] ?? '',
+      videoId: cols[idx.videoId] ?? '',
+      from: Number(cols[idx.from]),
+      to: Number(cols[idx.to]),
+      rate: Number(cols[idx.rate]),
+      at: atRaw ? new Date(atRaw) : new Date(),
+    };
+  });
+}
+
+function finiteOrZero(value: number): number {
+  return Number.isFinite(value) ? value : 0;
+}
+
+function finiteDateOrNow(value: Date): Date {
+  return Number.isFinite(value.getTime()) ? value : new Date();
 }
 
 function slugFromUrl(url: string): string {
