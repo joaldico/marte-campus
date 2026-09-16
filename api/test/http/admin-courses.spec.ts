@@ -155,9 +155,12 @@ function seedPrisma() {
     return row;
   };
 
-  const prisma: Record<string, unknown> & { failPublishedPointerOnce?: boolean } =
-    {};
+  const prisma: Record<string, unknown> & {
+    failPublishedPointerOnce?: boolean;
+    failChapterOrderFinalizeOnce?: boolean;
+  } = {};
   prisma.failPublishedPointerOnce = false;
+  prisma.failChapterOrderFinalizeOnce = false;
 
   prisma.user = {
     findMany: jest.fn(async () => users),
@@ -395,6 +398,14 @@ function seedPrisma() {
         const chapter = chapters.find((row) => row.id === args.where.id);
         if (!chapter) {
           return null;
+        }
+        if (
+          prisma.failChapterOrderFinalizeOnce &&
+          typeof args.data.position === 'number' &&
+          args.data.position > 0
+        ) {
+          prisma.failChapterOrderFinalizeOnce = false;
+          throw new Error('simulated chapter order finalize failure');
         }
         Object.assign(chapter, args.data);
         const hydrated: Record<string, unknown> = { ...chapter };
@@ -1406,5 +1417,102 @@ describe('Admin courses HTTP (T-6.1 / T-6.3 / CA-05 / CA-07)', () => {
         }),
       ]),
     );
+  });
+
+  it('rolls back non-clone reorder if the 1..n position pass fails', async () => {
+    const cookie = await loginAs('ana');
+    const before = await request(app.getHttpServer())
+      .get('/admin/courses/paisajes-ii')
+      .set('Cookie', cookie);
+    expect(before.status).toBe(200);
+    expect(before.body.publishedVersionId).toBeNull();
+    expect(before.body.status).toBe('in_review');
+    expect(
+      before.body.chapters.map((chapter: { id: string; position: number }) => [
+        chapter.id,
+        chapter.position,
+      ]),
+    ).toEqual([
+      ['paisajes-ii-ch-1', 1],
+      ['paisajes-ii-ch-2', 2],
+    ]);
+
+    prisma.failChapterOrderFinalizeOnce = true;
+    const order = await request(app.getHttpServer())
+      .patch('/admin/courses/paisajes-ii/chapters/order')
+      .set('Cookie', cookie)
+      .send({ chapterIds: ['paisajes-ii-ch-2', 'paisajes-ii-ch-1'] });
+    expect(order.status).toBeGreaterThanOrEqual(500);
+
+    const after = await request(app.getHttpServer())
+      .get('/admin/courses/paisajes-ii')
+      .set('Cookie', cookie);
+    expect(after.status).toBe(200);
+    expect(
+      after.body.chapters.map((chapter: { id: string; position: number }) => [
+        chapter.id,
+        chapter.position,
+      ]),
+    ).toEqual([
+      ['paisajes-ii-ch-1', 1],
+      ['paisajes-ii-ch-2', 2],
+    ]);
+    expect(
+      after.body.chapters.every((chapter: { position: number }) => chapter.position > 0),
+    ).toBe(true);
+
+    const retry = await request(app.getHttpServer())
+      .patch('/admin/courses/paisajes-ii/chapters/order')
+      .set('Cookie', cookie)
+      .send({ chapterIds: ['paisajes-ii-ch-2', 'paisajes-ii-ch-1'] });
+    expect(retry.status).toBe(200);
+    expect(retry.body.chapters.map((chapter: { id: string }) => chapter.id)).toEqual([
+      'paisajes-ii-ch-2',
+      'paisajes-ii-ch-1',
+    ]);
+    expect(
+      retry.body.chapters.map((chapter: { position: number }) => chapter.position),
+    ).toEqual([1, 2]);
+  });
+
+  it('rolls back non-clone post-delete renumber if the 1..n position pass fails', async () => {
+    const cookie = await loginAs('ana');
+    const created = await request(app.getHttpServer())
+      .post('/admin/courses')
+      .set('Cookie', cookie)
+      .send({ title: 'Paisajes order-tx' });
+    expect(created.status).toBe(201);
+    const courseId = created.body.id as string;
+    const playa = VIDEO_DURATIONS.find((video) => video.id === 'playa');
+    const cascada = VIDEO_DURATIONS.find((video) => video.id === 'cascada');
+    if (!playa || !cascada) {
+      throw new Error('seed videos missing');
+    }
+
+    const first = await request(app.getHttpServer())
+      .post(`/admin/courses/${courseId}/chapters`)
+      .set('Cookie', cookie)
+      .send({ title: 'Playa', url: playa.url });
+    expect(first.status).toBe(201);
+    const second = await request(app.getHttpServer())
+      .post(`/admin/courses/${courseId}/chapters`)
+      .set('Cookie', cookie)
+      .send({ title: 'Cascada', url: cascada.url });
+    expect(second.status).toBe(201);
+
+    prisma.failChapterOrderFinalizeOnce = true;
+    const removed = await request(app.getHttpServer())
+      .delete(`/admin/courses/${courseId}/chapters/${second.body.id}`)
+      .set('Cookie', cookie);
+    expect(removed.status).toBeGreaterThanOrEqual(500);
+
+    const after = await request(app.getHttpServer())
+      .get(`/admin/courses/${courseId}`)
+      .set('Cookie', cookie);
+    expect(after.status).toBe(200);
+    expect(after.body.chapters).toHaveLength(1);
+    expect(after.body.chapters[0].id).toBe(first.body.id);
+    expect(after.body.chapters[0].position).toBeGreaterThan(0);
+    expect(after.body.chapters[0].position).toBe(1);
   });
 });

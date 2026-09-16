@@ -203,7 +203,9 @@ export class AdminService {
       return this.getCourse(courseId);
     }
 
-    await this.writeChapterOrder(this.prisma, chapterIds);
+    await this.prisma.$transaction(async (tx) => {
+      await this.writeChapterOrder(tx, chapterIds);
+    });
     return this.getCourse(courseId);
   }
 
@@ -262,7 +264,9 @@ export class AdminService {
     }
 
     await this.prisma.chapter.delete({ where: { id: chapterId } });
-    await this.renumberWorkingChapters(this.prisma, course.workingVersionId!);
+    await this.prisma.$transaction(async (tx) => {
+      await this.renumberWorkingChapters(tx, course.workingVersionId!);
+    });
   }
 
   async submitRevision(courseId: string) {
