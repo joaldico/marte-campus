@@ -25,6 +25,7 @@ services:
     environment:
       DATABASE_URL: postgresql://campus:campus@db:5432/campus?schema=public
       PORT: "3000"
+      VIDEO_PROXY: "true"
     ports:
       - "3000:3000"
     expose:
