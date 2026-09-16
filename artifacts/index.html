@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Campus Marte — SDD</title>
+  <title>Campus Marte — entrega</title>
   <style>
     :root { font-family: ui-sans-serif, system-ui, sans-serif; color: #0f172a; background: #f8fafc; }
     body { max-width: 920px; margin: 2rem auto; padding: 0 1.25rem 4rem; line-height: 1.5; }
@@ -15,55 +15,30 @@
     th, td { text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
     th { font-size: 0.75rem; text-transform: uppercase; letter-spacing: .04em; color: #64748b; }
     .ok { color: #047857; font-weight: 600; }
-    .wait { color: #b45309; font-weight: 600; }
-    ul { margin: 0.4rem 0 0; }
   </style>
 </head>
 <body>
-  <h1>Campus Marte — artefactos SDD</h1>
-  <p class="muted">Prueba Beonit · Vue 3 · NestJS · PostgreSQL · repo <a href="https://github.com/joaldico/marte-campus">joaldico/marte-campus</a> (privado)</p>
+  <h1>Campus Marte — entrega</h1>
+  <p class="muted">Beonit · Vue 3 · NestJS · PostgreSQL · <a href="https://github.com/joaldico/marte-campus">joaldico/marte-campus</a></p>
 
   <section>
-    <h2>Seguridad del PDF</h2>
-    <p class="ok">Limpio.</p>
-    <p>Sin JS, sin ficheros embebidos, sin texto oculto. 6 links a mp4 de archive.org. El CSV sucio (intervalo invertido, vídeo <code>rio</code>, Diego no inscrito) es trampa de dominio, no prompt injection.</p>
+    <h2>Cómo levantar</h2>
+    <p><code>docker compose up --build</code> → <a href="http://localhost">http://localhost</a>. Recarga a cero: <code>docker compose down -v && docker compose up --build</code>. Detalle en <code>README.md</code>.</p>
   </section>
 
   <section>
-    <h2>Decisiones cerradas</h2>
-    <ul>
-      <li>MVP = enunciado 3.1–3.4. Bonus fuera.</li>
-      <li>UI: Naive UI + logo personal.</li>
-      <li>Progreso <strong>solo en servidor</strong> (unión de intervalos, 90 %, x2 = tiempo de vídeo).</li>
-      <li>Estados solo forward: draft → in_review → published → retired. El resto = 409.</li>
-      <li>Demo: <code>https://beonittest.josuediazcontreras.com</code> en la misma EC2 / proxy-reverse.</li>
-    </ul>
-  </section>
-
-  <section>
-    <h2>Documentos</h2>
+    <h2>Cómo probar CA-01..08</h2>
     <table>
-      <thead><tr><th>Fase</th><th>Fichero</th><th>Estado</th></tr></thead>
+      <thead><tr><th>CA</th><th>Qué hacer</th></tr></thead>
       <tbody>
-        <tr><td>1 Intent</td><td><code>.specify/1_intent.md</code></td><td class="ok">Aprobado</td></tr>
-        <tr><td>2 Spec</td><td><code>.specify/2_spec.md</code></td><td class="wait">Escrito — CA-01..08</td></tr>
-        <tr><td>3 Plan</td><td><code>.specify/3_plan.md</code></td><td class="wait">ADRs 001–009</td></tr>
-        <tr><td>4 Tasks</td><td><code>.specify/4_tasks.md</code></td><td class="wait">M1–M8 listos para TDD</td></tr>
-      </tbody>
-    </table>
-  </section>
-
-  <section>
-    <h2>Seed sucio (lo que puntúa)</h2>
-    <table>
-      <thead><tr><th>Caso</th><th>Resultado esperado</th></tr></thead>
-      <tbody>
-        <tr><td>Bruno cascada 0–4 duplicado + solapes</td><td>10 s únicos, no 15</td></tr>
-        <tr><td>Carla playa @x2</td><td>Sigue siendo tiempo de vídeo [0,10)</td></tr>
-        <tr><td>Carla cascada 8→2</td><td>rejected_inverted</td></tr>
-        <tr><td>Carla rio</td><td>rejected_unknown_video</td></tr>
-        <tr><td>Bruno atardecer</td><td>Cuenta al vídeo, no a Paisajes I</td></tr>
-        <tr><td>Diego playa sin inscripción</td><td>Al apuntarse, esos 10 s cuentan</td></tr>
+        <tr><td>01</td><td>Login: Ana, Bruno, Carla, Diego. Sin contraseña.</td></tr>
+        <tr><td>02</td><td>Bruno: solo Paisajes I. Diego: Apuntarme → playa 10 s.</td></tr>
+        <tr><td>03</td><td>Bruno cascada = 10 s (no 15). Carla playa [0,10) pese a x2. rio rechazado.</td></tr>
+        <tr><td>04</td><td>Carla Playa arranca en 10. Reproducir 10–12 une a [0,12).</td></tr>
+        <tr><td>05</td><td>Ana crea Paisajes IV, 2 capítulos, drag.</td></tr>
+        <tr><td>06</td><td>Botones de estado solo legales. Fetch ilegal → 409. III vacío no publica.</td></tr>
+        <tr><td>07</td><td>Ana cambia título Cascada; Bruno no lo ve hasta publicar revisión.</td></tr>
+        <tr><td>08</td><td>Ana /admin/heatmap: CSV 3.1; cascada hueco en t=7.</td></tr>
       </tbody>
     </table>
   </section>
@@ -71,11 +46,11 @@
   <section>
     <h2>Ceros del enunciado</h2>
     <ul>
-      <li><code>docker compose up</code> en limpio → M1 + M8</li>
-      <li>README + DECISIONS no vacío → T-8.1 / T-8.2</li>
-      <li>Estado ilegal aceptado → T-2.4 / T-6.2</li>
-      <li>Progreso en el cliente → grep gate T-4.4</li>
-      <li>Errores de consola → proxy vídeo T-1.5 + T-5.3</li>
+      <li class="ok">docker compose up + seed en el entrypoint</li>
+      <li class="ok">README + DECISIONS.md</li>
+      <li class="ok">Estados ilegales → 409 en API (el UI no los ofrece)</li>
+      <li class="ok">Progreso solo en <code>api/src/domain</code></li>
+      <li class="ok">Vídeo por proxy Range (<code>VIDEO_PROXY=true</code>)</li>
     </ul>
   </section>
 </body>

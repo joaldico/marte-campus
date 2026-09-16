@@ -1,6 +1,6 @@
 # DECISIONS.md — Campus Marte
 
-Product and spike decisions. Spec 2.13 is the source for the product list; T-1.5 is the CORS spike. Nest stream proxy is **not** implemented here.
+Qué se decidió, qué se descartó, por qué. Lista de producto = spec 2.13. El evaluador no debería encontrar sorpresas en el código.
 
 ---
 
@@ -10,9 +10,11 @@ Product and spike decisions. Spec 2.13 is the source for the product list; T-1.5
 
 All six spec 2.2.2 URLs redirect to `dn*.archive.org` CDNs. After follow, **none** send `Access-Control-Allow-Origin` (not `*`, not the probe Origin). A browser `<video crossorigin>` or `fetch()` of those bytes would fail CORS. Native `<video>` without `crossorigin` can still play (media element exemption) but RNF-03 (zero console errors), the range overlay (ADR-005), and RSK-01 forbid relying on that.
 
-Range itself works: HEAD `200` + `Accept-Ranges: bytes`; GET `Range: bytes=0-1` → `206` + `Content-Range`. The later Nest `GET /api/videos/:id/stream` should forward `Range` and `Accept-Ranges`. **This task only documents the flag; it does not implement the proxy.**
+Range itself works: HEAD `200` + `Accept-Ranges: bytes`; GET `Range: bytes=0-1` → `206` + `Content-Range`.
 
-`docker-compose.yml` sets `VIDEO_PROXY=true` on `api` so the player will point `<video src>` at `/api/videos/:id/stream` once that route exists.
+**Shipped:** `GET /videos/:id/stream` (browser `/api/videos/:id/stream`) forwards `Range`, always sets `Accept-Ranges: bytes` (archive.org GET 206 often omits it), aborts origin fetch on client close / timeout. Session required; not enrollment-gated (spec 2.8 Auth = sí). `VIDEO_PROXY=false` → 302 to origin.
+
+`docker-compose.yml` sets `VIDEO_PROXY=true`. Player `<video src>` uses `/api/videos/{id}/stream`.
 
 ### Probe
 
@@ -102,4 +104,4 @@ Short form only; no extra product choices.
 5. **Course progress** = arithmetic mean of chapter `ratio` values on the version the student sees.
 6. **Tab kill:** heartbeat / flush ≤ 5 s. Unflushed tail may be lost; resume cursor is last accepted `to`.
 7. **UI / media:** Naive UI; own logo at `/logo.png`; video via API Range proxy when `VIDEO_PROXY=true` (this spike).
-8. **Delivery repo:** private `joaldico/marte-campus` until handoff.
+8. **Delivery repo:** private `joaldico/marte-campus`. Entrega local = `docker compose up` + este fichero + README. Demo HTTPS en subdominio propio no forma parte del enunciado; no se mutó DNS en esta entrega.
