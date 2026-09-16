@@ -16,7 +16,7 @@ export function setupSwagger(app: INestApplication): void {
     .setVersion('1.0')
     .addServer('/api', 'nginx / Vite proxy')
     .addServer('/', 'Nest listen :3000')
-    .addCookieAuth(SESSION_COOKIE)
+    .addCookieAuth(SESSION_COOKIE, { type: 'apiKey' }, SESSION_COOKIE)
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
