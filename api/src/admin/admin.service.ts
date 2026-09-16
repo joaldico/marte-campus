@@ -1,5 +1,5 @@
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { CourseStatus as PrismaCourseStatus } from '@prisma/client';
+import { CourseStatus as PrismaCourseStatus, Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import {
   assertCanTransition,
@@ -165,35 +165,26 @@ export class AdminService {
   }
 
   async addChapter(courseId: string, title: string, url: string) {
-    const prepared = await this.prepareWorkingMutation(courseId);
+    const course = await this.requireCourse(courseId);
+    this.assertWorkingMutable(course);
     const video = await this.resolveVideo(url);
-    const last = await this.prisma.chapter.findMany({
-      where: { versionId: prepared.course.workingVersionId! },
-      orderBy: { position: 'desc' },
-    });
-    const position = (last[0]?.position ?? 0) + 1;
-    const chapter = await this.prisma.chapter.create({
-      data: {
-        versionId: prepared.course.workingVersionId!,
-        videoId: video.id,
-        title,
-        position,
-      },
-      include: { video: true },
-    });
-    return this.toChapterDto(chapter);
+    if (this.needsPublishedClone(course)) {
+      return this.prisma.$transaction(async (tx) => {
+        const { course: cloned } = await this.clonePublishedWorking(tx, course);
+        return this.appendChapter(tx, cloned.workingVersionId!, title, video.id);
+      });
+    }
+    return this.appendChapter(this.prisma, course.workingVersionId!, title, video.id);
   }
 
   async reorderChapters(courseId: string, chapterIds: string[]) {
-    const prepared = await this.prepareWorkingMutation(courseId);
-    const remappedIds = chapterIds.map(
-      (id) => prepared.chapterIdMap.get(id) ?? id,
-    );
+    const course = await this.requireCourse(courseId);
+    this.assertWorkingMutable(course);
     const working = await this.prisma.chapter.findMany({
-      where: { versionId: prepared.course.workingVersionId! },
+      where: { versionId: course.workingVersionId! },
     });
     const workingIds = working.map((chapter) => chapter.id);
-    if (!this.isExactIdSet(workingIds, remappedIds)) {
+    if (!this.isExactIdSet(workingIds, chapterIds)) {
       throw new HttpException(
         {
           code: 'CHAPTER_SET_MISMATCH',
@@ -203,21 +194,16 @@ export class AdminService {
       );
     }
 
-    await this.prisma.$transaction(async (tx) => {
-      for (let i = 0; i < remappedIds.length; i++) {
-        await tx.chapter.update({
-          where: { id: remappedIds[i] },
-          data: { position: -(i + 1) },
-        });
-      }
-      for (let i = 0; i < remappedIds.length; i++) {
-        await tx.chapter.update({
-          where: { id: remappedIds[i] },
-          data: { position: i + 1 },
-        });
-      }
-    });
+    if (this.needsPublishedClone(course)) {
+      await this.prisma.$transaction(async (tx) => {
+        const { chapterIdMap } = await this.clonePublishedWorking(tx, course);
+        const remappedIds = chapterIds.map((id) => chapterIdMap.get(id) ?? id);
+        await this.writeChapterOrder(tx, remappedIds);
+      });
+      return this.getCourse(courseId);
+    }
 
+    await this.writeChapterOrder(this.prisma, chapterIds);
     return this.getCourse(courseId);
   }
 
@@ -227,16 +213,30 @@ export class AdminService {
     title: string,
     url?: string,
   ) {
-    const prepared = await this.prepareWorkingMutation(courseId);
-    const targetId = prepared.chapterIdMap.get(chapterId) ?? chapterId;
-    await this.requireWorkingChapter(prepared.course, targetId);
+    const course = await this.requireCourse(courseId);
+    this.assertWorkingMutable(course);
+    await this.assertChapterReadyForMutation(course, chapterId);
     const data: { title: string; videoId?: string } = { title };
     if (url) {
       const video = await this.resolveVideo(url);
       data.videoId = video.id;
     }
+
+    if (this.needsPublishedClone(course)) {
+      return this.prisma.$transaction(async (tx) => {
+        const { chapterIdMap } = await this.clonePublishedWorking(tx, course);
+        const targetId = chapterIdMap.get(chapterId) ?? chapterId;
+        const chapter = await tx.chapter.update({
+          where: { id: targetId },
+          data,
+          include: { video: true },
+        });
+        return this.toChapterDto(chapter);
+      });
+    }
+
     const chapter = await this.prisma.chapter.update({
-      where: { id: targetId },
+      where: { id: chapterId },
       data,
       include: { video: true },
     });
@@ -244,28 +244,25 @@ export class AdminService {
   }
 
   async deleteChapter(courseId: string, chapterId: string): Promise<void> {
-    const prepared = await this.prepareWorkingMutation(courseId);
-    const targetId = prepared.chapterIdMap.get(chapterId) ?? chapterId;
-    await this.requireWorkingChapter(prepared.course, targetId);
-    await this.prisma.chapter.delete({ where: { id: targetId } });
-    const remaining = await this.prisma.chapter.findMany({
-      where: { versionId: prepared.course.workingVersionId! },
-      orderBy: { position: 'asc' },
-    });
-    await this.prisma.$transaction(async (tx) => {
-      for (let i = 0; i < remaining.length; i++) {
-        await tx.chapter.update({
-          where: { id: remaining[i].id },
-          data: { position: -(i + 1) },
-        });
-      }
-      for (let i = 0; i < remaining.length; i++) {
-        await tx.chapter.update({
-          where: { id: remaining[i].id },
-          data: { position: i + 1 },
-        });
-      }
-    });
+    const course = await this.requireCourse(courseId);
+    this.assertWorkingMutable(course);
+    await this.assertChapterReadyForMutation(course, chapterId);
+
+    if (this.needsPublishedClone(course)) {
+      await this.prisma.$transaction(async (tx) => {
+        const { course: cloned, chapterIdMap } = await this.clonePublishedWorking(
+          tx,
+          course,
+        );
+        const targetId = chapterIdMap.get(chapterId) ?? chapterId;
+        await tx.chapter.delete({ where: { id: targetId } });
+        await this.renumberWorkingChapters(tx, cloned.workingVersionId!);
+      });
+      return;
+    }
+
+    await this.prisma.chapter.delete({ where: { id: chapterId } });
+    await this.renumberWorkingChapters(this.prisma, course.workingVersionId!);
   }
 
   async submitRevision(courseId: string) {
@@ -317,13 +314,15 @@ export class AdminService {
       );
     }
 
-    await this.prisma.courseVersion.update({
-      where: { id: working.id },
-      data: { revisionStatus: 'published' },
-    });
-    return this.prisma.course.update({
-      where: { id: courseId },
-      data: { publishedVersionId: working.id },
+    return this.prisma.$transaction(async (tx) => {
+      await tx.courseVersion.update({
+        where: { id: working.id },
+        data: { revisionStatus: 'published' },
+      });
+      return tx.course.update({
+        where: { id: courseId },
+        data: { publishedVersionId: working.id },
+      });
     });
   }
 
@@ -340,32 +339,46 @@ export class AdminService {
     return course;
   }
 
-  private async prepareWorkingMutation(courseId: string): Promise<{
-    course: CourseRow;
-    chapterIdMap: Map<string, string>;
-  }> {
-    const course = await this.requireCourse(courseId);
-    const cloned = await this.clonePublishedWorkingIfNeeded(course);
-    this.assertWorkingMutable(cloned.course);
-    return cloned;
+  private needsPublishedClone(course: CourseRow): boolean {
+    return (
+      course.status === 'published' &&
+      !!course.workingVersionId &&
+      !!course.publishedVersionId &&
+      course.workingVersionId === course.publishedVersionId
+    );
   }
 
-  private async clonePublishedWorkingIfNeeded(course: CourseRow): Promise<{
-    course: CourseRow;
-    chapterIdMap: Map<string, string>;
-  }> {
-    const empty = new Map<string, string>();
-    if (
-      course.status !== 'published' ||
-      !course.workingVersionId ||
-      !course.publishedVersionId ||
-      course.workingVersionId !== course.publishedVersionId
-    ) {
-      return { course, chapterIdMap: empty };
+  private async assertChapterReadyForMutation(
+    course: CourseRow,
+    chapterId: string,
+  ): Promise<void> {
+    const chapter = await this.prisma.chapter.findUnique({
+      where: { id: chapterId },
+    });
+    if (!chapter) {
+      throw new HttpException(
+        { code: 'CHAPTER_NOT_FOUND', message: 'Unknown chapter' },
+        HttpStatus.NOT_FOUND,
+      );
     }
+    if (this.needsPublishedClone(course)) {
+      if (chapter.versionId !== course.workingVersionId) {
+        throw new HttpException(
+          { code: 'CHAPTER_NOT_FOUND', message: 'Unknown chapter' },
+          HttpStatus.NOT_FOUND,
+        );
+      }
+      return;
+    }
+    await this.requireWorkingChapter(course, chapterId);
+  }
 
-    const source = await this.prisma.courseVersion.findUnique({
-      where: { id: course.publishedVersionId },
+  private async clonePublishedWorking(
+    tx: Prisma.TransactionClient,
+    course: CourseRow,
+  ): Promise<{ course: CourseRow; chapterIdMap: Map<string, string> }> {
+    const source = await tx.courseVersion.findUnique({
+      where: { id: course.publishedVersionId! },
     });
     if (!source) {
       throw new HttpException(
@@ -374,37 +387,90 @@ export class AdminService {
       );
     }
 
-    const sourceChapters = await this.prisma.chapter.findMany({
-      where: { versionId: course.publishedVersionId },
+    const sourceChapters = await tx.chapter.findMany({
+      where: { versionId: course.publishedVersionId! },
       orderBy: { position: 'asc' },
     });
 
-    return this.prisma.$transaction(async (tx) => {
-      const clone = await tx.courseVersion.create({
+    const clone = await tx.courseVersion.create({
+      data: {
+        courseId: course.id,
+        revisionStatus: 'draft',
+        versionNumber: source.versionNumber + 1,
+      },
+    });
+    const chapterIdMap = new Map<string, string>();
+    for (const chapter of sourceChapters) {
+      const copied = await tx.chapter.create({
         data: {
-          courseId: course.id,
-          revisionStatus: 'draft',
-          versionNumber: source.versionNumber + 1,
+          versionId: clone.id,
+          videoId: chapter.videoId,
+          title: chapter.title,
+          position: chapter.position,
         },
       });
-      const chapterIdMap = new Map<string, string>();
-      for (const chapter of sourceChapters) {
-        const copied = await tx.chapter.create({
-          data: {
-            versionId: clone.id,
-            videoId: chapter.videoId,
-            title: chapter.title,
-            position: chapter.position,
-          },
-        });
-        chapterIdMap.set(chapter.id, copied.id);
-      }
-      const updated = await tx.course.update({
-        where: { id: course.id },
-        data: { workingVersionId: clone.id },
-      });
-      return { course: updated as CourseRow, chapterIdMap };
+      chapterIdMap.set(chapter.id, copied.id);
+    }
+    const updated = await tx.course.update({
+      where: { id: course.id },
+      data: { workingVersionId: clone.id },
     });
+    return { course: updated as CourseRow, chapterIdMap };
+  }
+
+  private async appendChapter(
+    db: Prisma.TransactionClient | PrismaService,
+    versionId: string,
+    title: string,
+    videoId: string,
+  ) {
+    const last = await db.chapter.findMany({
+      where: { versionId },
+      orderBy: { position: 'desc' },
+    });
+    const position = (last[0]?.position ?? 0) + 1;
+    const chapter = await db.chapter.create({
+      data: {
+        versionId,
+        videoId,
+        title,
+        position,
+      },
+      include: { video: true },
+    });
+    return this.toChapterDto(chapter);
+  }
+
+  private async writeChapterOrder(
+    db: Prisma.TransactionClient | PrismaService,
+    chapterIds: string[],
+  ): Promise<void> {
+    for (let i = 0; i < chapterIds.length; i++) {
+      await db.chapter.update({
+        where: { id: chapterIds[i] },
+        data: { position: -(i + 1) },
+      });
+    }
+    for (let i = 0; i < chapterIds.length; i++) {
+      await db.chapter.update({
+        where: { id: chapterIds[i] },
+        data: { position: i + 1 },
+      });
+    }
+  }
+
+  private async renumberWorkingChapters(
+    db: Prisma.TransactionClient | PrismaService,
+    versionId: string,
+  ): Promise<void> {
+    const remaining = await db.chapter.findMany({
+      where: { versionId },
+      orderBy: { position: 'asc' },
+    });
+    await this.writeChapterOrder(
+      db,
+      remaining.map((chapter) => chapter.id),
+    );
   }
 
   private async requireWorkingVersion(course: CourseRow) {

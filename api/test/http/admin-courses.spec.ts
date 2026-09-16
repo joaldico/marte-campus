@@ -155,7 +155,9 @@ function seedPrisma() {
     return row;
   };
 
-  const prisma: Record<string, unknown> = {};
+  const prisma: Record<string, unknown> & { failPublishedPointerOnce?: boolean } =
+    {};
+  prisma.failPublishedPointerOnce = false;
 
   prisma.user = {
     findMany: jest.fn(async () => users),
@@ -250,6 +252,14 @@ function seedPrisma() {
         data: Partial<CourseRow>;
         include?: Record<string, unknown>;
       }) => {
+        if (
+          prisma.failPublishedPointerOnce &&
+          args.data.publishedVersionId != null &&
+          args.data.status === undefined
+        ) {
+          prisma.failPublishedPointerOnce = false;
+          throw new Error('simulated publishedVersionId failure');
+        }
         const course = courses.find((row) => row.id === args.where.id);
         if (!course) {
           return null;
@@ -456,7 +466,21 @@ function seedPrisma() {
   };
   prisma.$transaction = jest.fn(async (arg: unknown) => {
     if (typeof arg === 'function') {
-      return (arg as (tx: typeof prisma) => Promise<unknown>)(prisma);
+      const snapshot = {
+        courses: courses.map((row) => ({ ...row })),
+        versions: versions.map((row) => ({ ...row })),
+        chapters: chapters.map((row) => ({ ...row })),
+        videos: videos.map((row) => ({ ...row })),
+      };
+      try {
+        return await (arg as (tx: typeof prisma) => Promise<unknown>)(prisma);
+      } catch (err) {
+        courses.splice(0, courses.length, ...snapshot.courses);
+        versions.splice(0, versions.length, ...snapshot.versions);
+        chapters.splice(0, chapters.length, ...snapshot.chapters);
+        videos.splice(0, videos.length, ...snapshot.videos);
+        throw err;
+      }
     }
     if (Array.isArray(arg)) {
       return Promise.all(arg);
@@ -469,13 +493,15 @@ function seedPrisma() {
 
 describe('Admin courses HTTP (T-6.1 / T-6.3 / CA-05 / CA-07)', () => {
   let app: INestApplication;
+  let prisma: ReturnType<typeof seedPrisma>;
 
   beforeEach(async () => {
+    prisma = seedPrisma();
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     })
       .overrideProvider(PrismaService)
-      .useValue(seedPrisma())
+      .useValue(prisma)
       .compile();
 
     app = moduleFixture.createNestApplication();
@@ -908,6 +934,96 @@ describe('Admin courses HTTP (T-6.1 / T-6.3 / CA-05 / CA-07)', () => {
     expect(deletePublished.body.code).toBe('CHAPTER_ON_PUBLISHED');
   });
 
+  it('does not leave a draft clone after a 404 chapter PATCH; retry with published id clones', async () => {
+    const cookie = await loginAs('ana');
+
+    const missing = await request(app.getHttpServer())
+      .patch('/admin/courses/paisajes-i/chapters/does-not-exist')
+      .set('Cookie', cookie)
+      .send({ title: 'nope' });
+    expect(missing.status).toBe(404);
+    expect(missing.body.code).toBe('CHAPTER_NOT_FOUND');
+
+    const afterFail = await request(app.getHttpServer())
+      .get('/admin/courses/paisajes-i')
+      .set('Cookie', cookie);
+    expect(afterFail.status).toBe(200);
+    expect(afterFail.body.workingVersionId).toBe(afterFail.body.publishedVersionId);
+    expect(afterFail.body.versions).toHaveLength(1);
+
+    const patched = await request(app.getHttpServer())
+      .patch('/admin/courses/paisajes-i/chapters/paisajes-i-ch-2')
+      .set('Cookie', cookie)
+      .send({ title: 'Cascada editada' });
+    expect(patched.status).toBe(200);
+    expect(patched.body.title).toBe('Cascada editada');
+    expect(patched.body.id).not.toBe('paisajes-i-ch-2');
+  });
+
+  it('does not leave a draft clone after CHAPTER_SET_MISMATCH; retry with published ids clones', async () => {
+    const cookie = await loginAs('ana');
+
+    const mismatch = await request(app.getHttpServer())
+      .patch('/admin/courses/paisajes-i/chapters/order')
+      .set('Cookie', cookie)
+      .send({ chapterIds: ['paisajes-i-ch-1'] });
+    expect(mismatch.status).toBe(400);
+    expect(mismatch.body.code).toBe('CHAPTER_SET_MISMATCH');
+
+    const afterFail = await request(app.getHttpServer())
+      .get('/admin/courses/paisajes-i')
+      .set('Cookie', cookie);
+    expect(afterFail.status).toBe(200);
+    expect(afterFail.body.workingVersionId).toBe(afterFail.body.publishedVersionId);
+    expect(afterFail.body.versions).toHaveLength(1);
+
+    const order = await request(app.getHttpServer())
+      .patch('/admin/courses/paisajes-i/chapters/order')
+      .set('Cookie', cookie)
+      .send({
+        chapterIds: ['paisajes-i-ch-3', 'paisajes-i-ch-1', 'paisajes-i-ch-2'],
+      });
+    expect(order.status).toBe(200);
+    expect(order.body.workingVersionId).not.toBe(order.body.publishedVersionId);
+    expect(order.body.chapters.map((chapter: { title: string }) => chapter.title)).toEqual([
+      'Bosque',
+      'Playa',
+      'Cascada',
+    ]);
+  });
+
+  it('does not leave a draft clone after a 404 chapter DELETE; retry with published id clones', async () => {
+    const cookie = await loginAs('ana');
+
+    const missing = await request(app.getHttpServer())
+      .delete('/admin/courses/paisajes-i/chapters/does-not-exist')
+      .set('Cookie', cookie);
+    expect(missing.status).toBe(404);
+    expect(missing.body.code).toBe('CHAPTER_NOT_FOUND');
+
+    const afterFail = await request(app.getHttpServer())
+      .get('/admin/courses/paisajes-i')
+      .set('Cookie', cookie);
+    expect(afterFail.status).toBe(200);
+    expect(afterFail.body.workingVersionId).toBe(afterFail.body.publishedVersionId);
+    expect(afterFail.body.versions).toHaveLength(1);
+
+    const del = await request(app.getHttpServer())
+      .delete('/admin/courses/paisajes-i/chapters/paisajes-i-ch-1')
+      .set('Cookie', cookie);
+    expect([200, 204]).toContain(del.status);
+
+    const detail = await request(app.getHttpServer())
+      .get('/admin/courses/paisajes-i')
+      .set('Cookie', cookie);
+    expect(detail.status).toBe(200);
+    expect(detail.body.workingVersionId).not.toBe(detail.body.publishedVersionId);
+    expect(detail.body.chapters.map((chapter: { title: string }) => chapter.title)).toEqual([
+      'Cascada',
+      'Bosque',
+    ]);
+  });
+
   it('returns 400 when order ids are not exactly the working set', async () => {
     const cookie = await loginAs('ana');
     const response = await request(app.getHttpServer())
@@ -1248,5 +1364,47 @@ describe('Admin courses HTTP (T-6.1 / T-6.3 / CA-05 / CA-07)', () => {
       .set('Cookie', cookie);
     expect(publish.status).toBe(404);
     expect(publish.body.code).toBe('COURSE_NOT_FOUND');
+  });
+
+  it('keeps working in_review and published pointer unchanged if publish pointer write fails', async () => {
+    const cookie = await loginAs('ana');
+    const patched = await request(app.getHttpServer())
+      .patch('/admin/courses/paisajes-i/chapters/paisajes-i-ch-2')
+      .set('Cookie', cookie)
+      .send({ title: 'Cascada editada' });
+    expect(patched.status).toBe(200);
+
+    const submitted = await request(app.getHttpServer())
+      .post('/admin/courses/paisajes-i/revisions/submit')
+      .set('Cookie', cookie);
+    expect(submitted.status).toBe(200);
+
+    const before = await request(app.getHttpServer())
+      .get('/admin/courses/paisajes-i')
+      .set('Cookie', cookie);
+    expect(before.status).toBe(200);
+    const workingVersionId = before.body.workingVersionId as string;
+    expect(before.body.publishedVersionId).toBe('paisajes-i-v1');
+
+    prisma.failPublishedPointerOnce = true;
+    const published = await request(app.getHttpServer())
+      .post('/admin/courses/paisajes-i/revisions/publish')
+      .set('Cookie', cookie);
+    expect(published.status).toBeGreaterThanOrEqual(500);
+
+    const after = await request(app.getHttpServer())
+      .get('/admin/courses/paisajes-i')
+      .set('Cookie', cookie);
+    expect(after.status).toBe(200);
+    expect(after.body.publishedVersionId).toBe('paisajes-i-v1');
+    expect(after.body.workingVersionId).toBe(workingVersionId);
+    expect(after.body.versions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: workingVersionId,
+          revisionStatus: 'in_review',
+        }),
+      ]),
+    );
   });
 });
